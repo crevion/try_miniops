@@ -41,6 +41,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -1453,21 +1462,21 @@ export function TaskFormDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {children && <DialogTrigger asChild>{children}</DialogTrigger>}
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <form onSubmit={submit} noValidate>
-          <DialogHeader>
-            <DialogTitle>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      {children && <SheetTrigger asChild>{children}</SheetTrigger>}
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
+        <form onSubmit={submit} noValidate className="flex min-h-0 flex-1 flex-col">
+          <SheetHeader className="border-b px-6 py-5 pr-12 text-left">
+            <SheetTitle className="font-sans text-lg font-semibold">
               {task ? "Edit task" : form.parent ? "Add sub-task" : "Add task"}
-            </DialogTitle>
-            <DialogDescription>
+            </SheetTitle>
+            <SheetDescription>
               {form.parent && parentTitle
                 ? `A sub-task of “${parentTitle}”.`
                 : "Saved to your workspace."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-x-4 gap-y-5 py-5 sm:grid-cols-2">
+            </SheetDescription>
+          </SheetHeader>
+          <div className="grid flex-1 content-start gap-x-4 gap-y-5 overflow-y-auto px-6 py-5 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Label htmlFor="task-title">
                 Task title<span className="ml-0.5 text-destructive">*</span>
@@ -1609,7 +1618,7 @@ export function TaskFormDialog({
               true,
             )}
           </div>
-          <DialogFooter>
+          <SheetFooter className="gap-2 border-t bg-card px-6 py-4">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -1624,9 +1633,9 @@ export function TaskFormDialog({
                       ? `Create for ${assignees.length} people`
                       : "Create task"}
             </Button>
-          </DialogFooter>
+          </SheetFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
