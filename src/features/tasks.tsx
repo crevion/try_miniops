@@ -12,6 +12,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChartColumn,
+  Check,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -73,7 +74,7 @@ import {
 import { MobileCard, MobileField, PageHeader, Status } from "@/components/miniops/core";
 import { Section } from "@/components/miniops/forms";
 import { RichText, RichTextEditor } from "@/components/miniops/rich-text";
-import { SearchableSelect } from "@/components/miniops/select-search";
+import { SearchableMultiSelect, SearchableSelect } from "@/components/miniops/select-search";
 import { TagInput, TagList } from "@/components/miniops/tag-input";
 import {
   DateInput,
@@ -91,7 +92,7 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ErrorState, NoAccess, SignInPrompt } from "./projects";
-import { useMiniOps, useTaskTags, type TaskInput, type TaskItem } from "./store";
+import { useMiniOps, useNeeds, useTaskTags, type TaskInput, type TaskItem } from "./store";
 import { TaskExportDialog, TaskReport } from "./task-reports";
 
 const NO_PROJECT = "__none__";
@@ -121,7 +122,10 @@ function DueDate({ task, className }: { task: TaskItem; className?: string }) {
 export function Tasks() {
   const { taskList, tasksState, projects, members, can, authStatus } = useMiniOps();
   const canEdit = can("tasks", "edit");
-  const [view, setView] = useListState<"list" | "board" | "calendar" | "report">("Tasks.view", "list");
+  const [view, setView] = useListState<"list" | "board" | "calendar" | "report">(
+    "Tasks.view",
+    "list",
+  );
   const [q, setQ] = useListState("Tasks.q", "");
   const [project, setProject] = useListState("Tasks.project", "");
   const [assignee, setAssignee] = useListState("Tasks.assignee", "");
@@ -148,11 +152,7 @@ export function Tasks() {
             : assigneeIds(t).includes(Number(assignee))),
       )
       .filter((t) =>
-        status === "all"
-          ? true
-          : status === OVERDUE
-            ? t.isOverdue
-            : t.status === status,
+        status === "all" ? true : status === OVERDUE ? t.isOverdue : t.status === status,
       )
       .filter((t) => !tag || t.tags.includes(tag))
       .filter((t) => priority === "all" || t.priority === priority)
@@ -526,7 +526,10 @@ export function TaskTable({
 
 function TaskDesktopTable({ rows, showProject }: { rows: TaskItem[]; showProject: boolean }) {
   const { taskList } = useMiniOps();
-  const [expanded, setExpanded] = useListState<Set<string>>("TaskDesktopTable.expanded", () => new Set());
+  const [expanded, setExpanded] = useListState<Set<string>>(
+    "TaskDesktopTable.expanded",
+    () => new Set(),
+  );
   const toggle = (slug: string) =>
     setExpanded((cur) => {
       const next = new Set(cur);
@@ -537,7 +540,10 @@ function TaskDesktopTable({ rows, showProject }: { rows: TaskItem[]; showProject
   const subtasksOf = (t: TaskItem) =>
     t.subtasks.flatMap((s) => taskList.find((x) => x.slug === s.slug) ?? []);
 
-  const [dueDateOrder, setDueDateOrder] = useListState<DueDateOrder>("TaskDesktopTable.dueDateOrder", "ascending");
+  const [dueDateOrder, setDueDateOrder] = useListState<DueDateOrder>(
+    "TaskDesktopTable.dueDateOrder",
+    "ascending",
+  );
   const sortedRows = sortByDueDate(rows, dueDateOrder);
 
   function toggleDueDateOrder() {
@@ -986,8 +992,14 @@ export function TaskDetail({ slug }: { slug: string }) {
 
 /** A task's sub-tasks, each with its own assignee, status and deadline. */
 function Subtasks({ task }: { task: TaskItem }) {
-  const { rescheduleTask } = useMiniOps();
+  const { rescheduleTask, moveTask, saveTask, members } = useMiniOps();
   const done = task.subtasks.filter((s) => s.status === "Done").length;
+  const total = task.subtasks.length;
+  const [title, setTitle] = useState("");
+  const [person, setPerson] = useState("");
+  const [due, setDue] = useState("");
+  const [adding, setAdding] = useState(false);
+  const people = members.map((m) => ({ value: String(m.id), label: m.name, hint: m.role }));
 
   async function reschedule(slug: string, date: string) {
     try {
@@ -997,72 +1009,160 @@ function Subtasks({ task }: { task: TaskItem }) {
       toast.error(e instanceof Error ? e.message : "Couldn't change the deadline.");
     }
   }
+  async function toggle(slug: string, isDone: boolean) {
+    try {
+      await moveTask(slug, isDone ? "To Do" : "Done");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't update the sub-task.");
+    }
+  }
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    // A sub-task with no title of its own is that person's part of the main task.
+    const name = title.trim() || (person ? task.title : "");
+    if (!name) return;
+    setAdding(true);
+    try {
+      await saveTask({
+        title: name,
+        description: "",
+        project: task.project ?? "",
+        assignee: person,
+        parent: task.slug,
+        tags: [],
+        priority: task.priority,
+        status: "To Do",
+        dueDate: due || task.dueDate || "",
+      });
+      setTitle("");
+      setPerson("");
+      setDue("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't add the sub-task.");
+    } finally {
+      setAdding(false);
+    }
+  }
 
   return (
     <Section
       title="Sub-tasks"
       subtitle={
-        task.subtasks.length
-          ? `${done} of ${task.subtasks.length} done`
+        total
+          ? `${done} of ${total} done`
           : "Break this task down, or give each person their own part."
       }
       action={
         task.canEdit && (
           <TaskFormDialog parent={task.slug} project={task.project ?? ""}>
-            <Button variant="outline" size="sm">
-              <Plus /> Add sub-task
+            <Button variant="ghost" size="sm">
+              More options
             </Button>
           </TaskFormDialog>
         )
       }
       className="mt-8"
     >
-      {task.subtasks.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Sub-task</TableHead>
-              <TableHead>Assigned to</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Due date</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {task.subtasks.map((s) => (
-              <TableRow key={s.slug} className={s.isOverdue ? "bg-danger-soft/30" : undefined}>
-                <TableCell>
-                  <Link
-                    to="/tasks/$taskSlug"
-                    params={{ taskSlug: s.slug }}
-                    className="font-medium hover:text-primary"
-                  >
-                    {s.title}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  {s.assigneeName || <span className="text-muted-foreground">Unassigned</span>}
-                </TableCell>
-                <TableCell>
-                  <Status>{s.status}</Status>
-                </TableCell>
-                <TableCell className="w-52">
-                  {task.canEdit ? (
-                    <DateInput
-                      aria-label={`Due date for ${s.title}`}
-                      value={s.dueDate ?? ""}
-                      onChange={(v) => v !== (s.dueDate ?? "") && void reschedule(s.slug, v)}
-                    />
-                  ) : s.dueDate ? (
-                    formatDisplayDate(s.dueDate)
-                  ) : (
-                    "No due date"
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      {total > 0 && (
+        <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-secondary">
+          <div
+            className="h-full rounded-full bg-positive transition-[width]"
+            style={{ width: `${(done / total) * 100}%` }}
+          />
+        </div>
       )}
+      <div className="overflow-hidden rounded-2xl border bg-card">
+        {task.subtasks.map((s) => {
+          const isDone = s.status === "Done";
+          return (
+            <div
+              key={s.slug}
+              className={cn(
+                "flex flex-wrap items-center gap-3 border-b px-4 py-3 last:border-0",
+                s.isOverdue && !isDone && "bg-danger-soft/30",
+              )}
+            >
+              <button
+                type="button"
+                disabled={!task.canEdit}
+                onClick={() => void toggle(s.slug, isDone)}
+                aria-label={isDone ? `Mark ${s.title} not done` : `Mark ${s.title} done`}
+                className={cn(
+                  "grid size-5 shrink-0 place-items-center rounded-full border-2 transition-colors",
+                  isDone
+                    ? "border-positive bg-positive text-white"
+                    : "border-input hover:border-positive",
+                )}
+              >
+                {isDone && <Check className="size-3" strokeWidth={3} />}
+              </button>
+              <Link
+                to="/tasks/$taskSlug"
+                params={{ taskSlug: s.slug }}
+                className={cn(
+                  "min-w-0 flex-1 truncate font-medium hover:text-primary",
+                  isDone && "text-subtle-foreground line-through",
+                )}
+              >
+                {s.title === task.title && s.assigneeName
+                  ? `${s.assigneeName.split(" ")[0]}'s part`
+                  : s.title}
+              </Link>
+              <span className="w-36 truncate text-sm text-muted-foreground">
+                {s.assigneeName || "Unassigned"}
+              </span>
+              <span className="w-28">
+                <Status>{s.status}</Status>
+              </span>
+              <span className="w-44">
+                {task.canEdit ? (
+                  <DateInput
+                    aria-label={`Due date for ${s.title}`}
+                    value={s.dueDate ?? ""}
+                    onChange={(v) => v !== (s.dueDate ?? "") && void reschedule(s.slug, v)}
+                  />
+                ) : (
+                  <span className="text-sm text-muted-foreground">
+                    {s.dueDate ? formatDisplayDate(s.dueDate) : "No due date"}
+                  </span>
+                )}
+              </span>
+            </div>
+          );
+        })}
+        {task.canEdit && (
+          <form
+            onSubmit={add}
+            className="flex flex-wrap items-center gap-3 bg-secondary/40 px-4 py-3"
+          >
+            <Plus className="size-5 shrink-0 text-subtle-foreground" />
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={person ? `${task.title} (their part)` : "Add a sub-task…"}
+              aria-label="New sub-task"
+              className="h-9 min-w-48 flex-1 border-transparent bg-transparent shadow-none focus-visible:bg-card"
+            />
+            <SearchableSelect
+              clearable
+              variant="filter"
+              placeholder="Assign"
+              searchPlaceholder="Search people…"
+              options={people}
+              value={person}
+              onChange={setPerson}
+              aria-label="Assign the new sub-task"
+              className="h-9"
+            />
+            <span className="w-44">
+              <DateInput aria-label="Due date for the new sub-task" value={due} onChange={setDue} />
+            </span>
+            <Button type="submit" size="sm" disabled={adding || (!title.trim() && !person)}>
+              {adding ? "Adding…" : "Add"}
+            </Button>
+          </form>
+        )}
+      </div>
     </Section>
   );
 }
@@ -1266,15 +1366,20 @@ export function TaskFormDialog({
   const [innerOpen, setInnerOpen] = useState(false);
   const controlled = openProp !== undefined;
   const open = controlled ? openProp : innerOpen;
+  // It can open from any page (e.g. the sidebar), so load what the form lists.
+  useNeeds(...(open ? (["projects", "members", "tasks"] as const) : []));
   const [form, setForm] = useState<TaskInput>(() =>
     toInput(task, { project: project ?? "", parent: parent ?? "" }),
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // New main tasks can go to several people: each gets their own sub-task to track.
+  const [assignees, setAssignees] = useState<string[]>([]);
   const set = <K extends keyof TaskInput>(key: K, value: TaskInput[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
   const people = members.map((m) => ({ value: String(m.id), label: m.name, hint: m.role }));
   const hasSubtasks = !!task?.subtasks.length;
+  const multiAssign = !task && !form.parent;
   // Sub-tasks go one level deep, under a task that isn't itself a sub-task.
   const parentOptions = taskList
     .filter((t) => !t.parent && t.slug !== task?.slug)
@@ -1288,6 +1393,7 @@ export function TaskFormDialog({
 
   function reset() {
     setForm(toInput(task, { project: project ?? "", parent: parent ?? "" }));
+    setAssignees([]);
     setError("");
   }
 
@@ -1311,11 +1417,26 @@ export function TaskFormDialog({
     }
     setSaving(true);
     try {
-      await saveTask(
-        { ...form, title: form.title.trim(), description: form.description.trim() },
-        task?.slug,
-      );
-      toast.success(task ? "Task updated" : "Task created");
+      const input = { ...form, title: form.title.trim(), description: form.description.trim() };
+      if (multiAssign && assignees.length > 1) {
+        // One shared task, plus each person's own part with its own status and deadline.
+        const main = await saveTask({ ...input, assignee: "" });
+        for (const person of assignees)
+          await saveTask({
+            ...input,
+            description: "",
+            assignee: person,
+            parent: main.slug,
+            status: "To Do",
+          });
+        toast.success(`Task created for ${assignees.length} people`);
+      } else {
+        await saveTask(
+          multiAssign ? { ...input, assignee: assignees[0] ?? "" } : input,
+          task?.slug,
+        );
+        toast.success(task ? "Task updated" : "Task created");
+      }
       onOpenChange(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't save the task.");
@@ -1402,6 +1523,23 @@ export function TaskFormDialog({
                 <p id="task-assignee" className="pt-2 text-sm text-muted-foreground">
                   People are on its sub-tasks
                 </p>
+              ) : multiAssign ? (
+                <>
+                  <SearchableMultiSelect
+                    id="task-assignee"
+                    placeholder="Unassigned"
+                    searchPlaceholder="Search people…"
+                    options={people}
+                    value={assignees}
+                    onChange={setAssignees}
+                  />
+                  {assignees.length > 1 && (
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      Each person gets their own part to tick off. The task is done when everyone is
+                      done.
+                    </p>
+                  )}
+                </>
               ) : (
                 <SearchableSelect
                   id="task-assignee"
@@ -1482,7 +1620,9 @@ export function TaskFormDialog({
                   ? "Save changes"
                   : form.parent
                     ? "Add sub-task"
-                    : "Create task"}
+                    : assignees.length > 1
+                      ? `Create for ${assignees.length} people`
+                      : "Create task"}
             </Button>
           </DialogFooter>
         </form>

@@ -55,6 +55,7 @@ import { useMiniOps, useNeeds } from "@/features/store";
 import { NotificationCenter, ProfileMenu } from "./header";
 import { ViewSwitcher } from "./view-switcher";
 import { AskMiniOps } from "@/features/preview/ask";
+import { TaskFormDialog } from "@/features/tasks";
 import { cn } from "@/lib/utils";
 import { CURRENCIES, browserTimezone, timezoneOptions } from "@/lib/workspace-options";
 import { SearchableSelect } from "./select-search";
@@ -364,6 +365,33 @@ function Nav({ close, compact = false }: { close?: () => void; compact?: boolean
   );
 }
 
+/** Create a task from anywhere in the app. */
+function NewTaskButton({ compact = false, onDone }: { compact?: boolean; onDone?: () => void }) {
+  const { live, can } = useMiniOps();
+  const [open, setOpen] = useState(false);
+  if (live && !can("tasks", "edit")) return null;
+  return (
+    <>
+      <Button
+        onClick={() => setOpen(true)}
+        title={compact ? "New task" : undefined}
+        aria-label="New task"
+        className={cn("mb-3 h-[38px]", compact ? "mx-auto w-10 px-0" : "w-full justify-start px-3")}
+      >
+        <Plus />
+        {!compact && "New task"}
+      </Button>
+      <TaskFormDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) onDone?.();
+        }}
+      />
+    </>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState(false);
@@ -389,6 +417,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Logo compact={collapsed} />
         </div>
         <WorkspacePicker compact={collapsed} />
+        <NewTaskButton compact={collapsed} />
         <Nav compact={collapsed} />
         <div className="pt-3">
           <AskMiniOps compact={collapsed} />
@@ -424,6 +453,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Logo />
                 </SheetTitle>
                 <WorkspacePicker />
+                <NewTaskButton />
                 <Nav />
                 <div className="pt-3">
                   <AskMiniOps />
