@@ -60,15 +60,26 @@ import { cn } from "@/lib/utils";
 import { CURRENCIES, browserTimezone, timezoneOptions } from "@/lib/workspace-options";
 import { SearchableSelect } from "./select-search";
 
-const primaryNav = [
-  ["/app", "Overview", LayoutDashboard],
-  ["/projects", "Projects", FolderKanban],
-  ["/tasks", "Tasks", CheckSquare],
-  ["/clients", "Clients", UsersRound],
-  ["/team", "Team", Users],
-  ["/chat", "Chat", MessageSquare],
-  ["/time", "Time", Clock3],
-  ["/expenses", "Expenses", Receipt],
+// Sidebar groups follow redesign v2: core pages, then Money, then Work.
+const navGroups = [
+  [
+    null,
+    [
+      ["/app", "Home", LayoutDashboard],
+      ["/projects", "Projects", FolderKanban],
+      ["/clients", "Clients", UsersRound],
+    ],
+  ],
+  ["Money", [["/expenses", "Expenses", Receipt]]],
+  [
+    "Work",
+    [
+      ["/tasks", "Tasks", CheckSquare],
+      ["/team", "Team", Users],
+      ["/time", "Time", Clock3],
+      ["/chat", "Chat", MessageSquare],
+    ],
+  ],
 ] as const;
 const adminNav = [["/settings", "Settings", Settings]] as const;
 
@@ -110,21 +121,21 @@ function WorkspacePicker({ compact = false }: { compact?: boolean }) {
           <Button
             variant="outline"
             className={cn(
-              "mb-4 h-auto w-full justify-start gap-3 border-transparent bg-gradient-to-br from-primary-soft to-accent px-2.5 py-2.5 text-left shadow-none hover:bg-accent",
+              "mb-2 h-auto w-full justify-start gap-2.5 border-transparent bg-transparent px-2 py-2 text-left shadow-none hover:bg-secondary",
               compact && "mx-auto size-11 justify-center p-0",
             )}
             title="Switch workspace"
           >
-            <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-xs font-semibold text-primary-foreground shadow-sm">
+            <span className="grid size-[30px] shrink-0 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
               {activeWorkspace.name.charAt(0)}
             </span>
             {!compact && (
               <>
                 <span className="min-w-0 flex-1">
-                  <b className="block truncate text-xs">{activeWorkspace.name}</b>
-                  <small className="block text-muted-foreground">{activeWorkspace.role}</small>
+                  <b className="block truncate text-sm font-semibold">{activeWorkspace.name}</b>
+                  <small className="block text-xs text-subtle-foreground">{activeWorkspace.role}</small>
                 </span>
-                <ChevronDown className="size-3 text-primary" />
+                <ChevronDown className="size-4 text-muted-foreground" />
               </>
             )}
           </Button>
@@ -253,59 +264,92 @@ const NAV_PERMISSION: Partial<Record<string, PermissionModule>> = {
 };
 function Nav({ close, compact = false }: { close?: () => void; compact?: boolean }) {
   const { live, can, chatUnread } = useMiniOps();
-  const visible = primaryNav.filter(([to]) => {
+  const [closedGroups, setClosedGroups] = useState<Set<string>>(() => new Set());
+  const allowed = (to: string) => {
     const module = NAV_PERMISSION[to];
     return !live || !module || can(module);
-  });
-  const links = [...visible, ...adminNav];
+  };
+  const toggleGroup = (label: string) =>
+    setClosedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  const renderLink = (to: string, label: string, Icon: typeof Settings) => {
+    const link = (
+      <Link
+        to={to}
+        onClick={close}
+        aria-label={label}
+        activeProps={{
+          className: "bg-sidebar-accent text-sidebar-accent-foreground font-semibold",
+        }}
+        inactiveProps={{
+          className: "text-sidebar-foreground hover:bg-secondary hover:text-foreground",
+        }}
+        className={cn(
+          "flex h-9 items-center gap-3 rounded-lg text-sm transition-colors duration-150",
+          compact ? "mx-auto w-10 justify-center" : "px-2.5",
+        )}
+      >
+        <Icon className="size-[17px] shrink-0" strokeWidth={1.8} />
+        {!compact && <span className="truncate">{label}</span>}
+        {to === "/chat" &&
+          chatUnread > 0 &&
+          (compact ? (
+            <span className="absolute ml-5 -mt-5 size-2.5 rounded-full bg-primary ring-2 ring-sidebar" />
+          ) : (
+            <span className="ml-auto grid min-w-5 place-items-center rounded-full bg-secondary px-1.5 text-[11px] font-semibold leading-5 text-muted-foreground">
+              {chatUnread > 99 ? "99+" : chatUnread}
+            </span>
+          ))}
+      </Link>
+    );
+    return (
+      <div key={to}>
+        {compact ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{link}</TooltipTrigger>
+            <TooltipContent side="right">{label}</TooltipContent>
+          </Tooltip>
+        ) : (
+          link
+        )}
+      </div>
+    );
+  };
   return (
     <TooltipProvider delayDuration={150}>
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden">
-        {links.map(([to, label, Icon], index) => {
-          const link = (
-            <Link
-              to={to}
-              onClick={close}
-              aria-label={label}
-              activeProps={{
-                className:
-                  "bg-primary-soft text-sidebar-accent-foreground font-semibold [&>svg]:text-primary",
-              }}
-              inactiveProps={{
-                className: "text-muted-foreground hover:bg-secondary hover:text-foreground",
-              }}
-              className={cn(
-                "flex h-10 items-center gap-3 rounded-[10px] text-sm transition-colors duration-200",
-                compact ? "mx-auto w-10 justify-center" : "px-3",
-              )}
-            >
-              <Icon className="size-5 shrink-0" strokeWidth={1.8} />
-              {!compact && <span className="truncate">{label}</span>}
-              {to === "/chat" &&
-                chatUnread > 0 &&
-                (compact ? (
-                  <span className="absolute ml-5 -mt-5 size-2.5 rounded-full bg-primary ring-2 ring-sidebar" />
-                ) : (
-                  <span className="ml-auto grid min-w-5 place-items-center rounded-full bg-primary px-1.5 text-[11px] font-semibold leading-5 text-primary-foreground">
-                    {chatUnread > 99 ? "99+" : chatUnread}
-                  </span>
-                ))}
-            </Link>
-          );
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden">
+        {navGroups.map(([label, items]) => {
+          const links = items.filter(([to]) => allowed(to));
+          if (!links.length) return null;
+          const closed = label !== null && !compact && closedGroups.has(label);
           return (
-            <div key={to}>
-              {index === visible.length && <span className="my-3 block h-px bg-border/70" />}
-              {compact ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>{link}</TooltipTrigger>
-                  <TooltipContent side="right">{label}</TooltipContent>
-                </Tooltip>
-              ) : (
-                link
-              )}
+            <div key={label ?? "main"} className="flex flex-col gap-0.5">
+              {label !== null &&
+                (compact ? (
+                  <span className="mx-auto my-2 block h-px w-8 bg-border" />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(label)}
+                    aria-expanded={!closed}
+                    className="flex w-full items-center gap-1.5 px-2.5 pb-1.5 pt-4 text-left text-xs font-semibold text-subtle-foreground hover:text-muted-foreground"
+                  >
+                    <ChevronDown
+                      className={cn("size-3.5 transition-transform", closed && "-rotate-90")}
+                    />
+                    {label}
+                  </button>
+                ))}
+              {!closed && links.map(([to, text, Icon]) => renderLink(to, text, Icon))}
             </div>
           );
         })}
+        <span className={cn("my-3 block h-px bg-border", compact && "mx-auto w-8")} />
+        {adminNav.map(([to, text, Icon]) => renderLink(to, text, Icon))}
       </nav>
     </TooltipProvider>
   );
@@ -328,8 +372,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-background">
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden overflow-hidden bg-sidebar py-3 shadow-[1px_0_0_var(--border)] transition-[width] duration-200 ease-out lg:flex lg:flex-col",
-          collapsed ? "w-[72px] px-2" : "w-60 px-3",
+          "fixed inset-y-0 left-0 z-30 hidden overflow-hidden border-r bg-sidebar py-3 transition-[width] duration-200 ease-out lg:flex lg:flex-col",
+          collapsed ? "w-[72px] px-2" : "w-[252px] px-3",
         )}
       >
         <div className={cn("mb-3 h-11", !collapsed && "px-2")}>
@@ -354,10 +398,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div
         className={cn(
           "min-w-0 transition-[padding] duration-200 ease-out",
-          collapsed ? "lg:pl-[72px]" : "lg:pl-60",
+          collapsed ? "lg:pl-[72px]" : "lg:pl-[252px]",
         )}
       >
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between bg-card/85 shadow-[0_1px_0_var(--border)] px-4 backdrop-blur-xl md:px-6">
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b bg-card/90 px-4 backdrop-blur-xl md:px-6">
           <div className="lg:hidden">
             <Sheet>
               <SheetTrigger asChild>
@@ -377,7 +421,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Button
             onClick={() => setSearch(true)}
             variant="outline"
-            className="hidden h-10 w-72 justify-start gap-2 border-transparent bg-secondary text-muted-foreground shadow-none hover:border-primary/10 hover:bg-accent md:flex"
+            className="hidden h-9 w-72 justify-start gap-2 border-transparent bg-secondary text-subtle-foreground font-normal shadow-none hover:bg-muted md:flex"
           >
             <Search className="size-4" />
             Search MiniOps <kbd className="ml-auto">⌘K</kbd>
