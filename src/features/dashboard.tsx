@@ -1,43 +1,675 @@
-import {type ReactNode} from 'react';
-import {Activity,AlertTriangle,ArrowRight,BriefcaseBusiness,CalendarClock,CheckCircle2,CheckSquare,Clock3,MessageSquare,Plus,Receipt,Users} from 'lucide-react';
-import {Link} from '@tanstack/react-router';
-import {Button} from '@/components/ui/button';
-import {PageHeader,Status} from '@/components/miniops/core';
-import {UserAvatar} from '@/components/miniops/header';
-import {money} from '@/data/mock';
-import {cn} from '@/lib/utils';
-import {useMiniOps} from './store';
+import { useState, type ReactNode } from "react";
+import { ArrowRight, ArrowUp, Repeat, TrendingDown, AlertTriangle, Upload } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { toast } from "sonner";
+import { PageHeader } from "@/components/miniops/core";
+import { money } from "@/data/mock";
+import { cn } from "@/lib/utils";
+import { useMiniOps } from "./store";
+import {
+  SAMPLE_HOME_CLIENTS,
+  SAMPLE_HOME_PROJECTS,
+  SAMPLE_TREND,
+  kmoney,
+  type HomeProject,
+} from "./preview/data";
+import { Chip, SampleDataBadge, Segmented } from "./preview/ui";
 
+/*
+ * Home answers one question for the owner: "how is the business doing?"
+ * Four numbers, one trend, one goal, things to act on, then projects and clients ranked.
+ * Project and client figures are real; the monthly trend and revenue goal use sample
+ * data until the backend reports them. A workspace with no projects yet shows samples.
+ */
 
-function Panel({title,icon,action,className,children}:{title:string;icon?:ReactNode;action?:ReactNode;className?:string;children:ReactNode}){return <section className={cn('min-w-0 rounded-2xl bg-card p-5 shadow-card md:p-6',className)}><div className="mb-4 flex items-center justify-between gap-3"><h2 className="flex items-center gap-2 font-display text-base font-semibold tracking-tight">{icon}{title}</h2>{action}</div>{children}</section>}
-const More=({to,children}:{to:string;children:ReactNode})=><Link to={to as never} className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">{children}<ArrowRight className="size-3"/></Link>;
+type Health = "good" | "risk" | "loss";
+const HEALTH: Record<Health, [string, "ok" | "warn" | "bad"]> = {
+  good: ["On track", "ok"],
+  risk: ["At risk", "warn"],
+  loss: ["Losing money", "bad"],
+};
+const marginOf = (revenue: number, cost: number) =>
+  revenue ? Math.round(((revenue - cost) / revenue) * 100) : 0;
+const healthOf = (p: HomeProject): Health => {
+  const m = marginOf(p.revenue, p.cost);
+  if (m < 0) return "loss";
+  if (m < 12 || p.budgetUsed >= 90 || p.budgetUsed > p.progress + 30) return "risk";
+  return "good";
+};
+type Grade = "great" | "ok" | "watch";
+const GRADE: Record<Grade, [string, "ok" | "info" | "bad"]> = {
+  great: ["Great client", "ok"],
+  ok: ["Healthy", "info"],
+  watch: ["Needs attention", "bad"],
+};
+const gradeOf = (margin: number, payDays?: number): Grade =>
+  margin >= 30 && (payDays ?? 0) <= 15
+    ? "great"
+    : margin >= 15 && (payDays ?? 0) <= 30
+      ? "ok"
+      : "watch";
 
-function Kpi({label,value,icon,tone,to}:{label:string;value:string|number;icon:ReactNode;tone:string;to:string}){return <Link to={to as never} className="group flex items-center gap-3 rounded-2xl bg-card p-4 shadow-card transition-all duration-200 hover:-translate-y-px hover:shadow-card-hover md:gap-4 md:p-5"><span className={cn('grid size-9 shrink-0 place-items-center rounded-xl md:size-11',tone)}>{icon}</span><span className="min-w-0"><b className="block font-mono text-xl font-semibold leading-tight tabular-nums md:text-3xl">{value}</b><small className="block truncate text-xs text-muted-foreground md:text-sm">{label}</small></span></Link>}
-function Mini({label,value,icon,to}:{label:string;value:string|number;icon:ReactNode;to:string}){return <Link to={to as never} className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors hover:bg-card"><span className="text-muted-foreground">{icon}</span><span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{label}</span><b className="font-mono text-sm tabular-nums">{value}</b></Link>}
+function Card({
+  title,
+  aside,
+  className,
+  children,
+}: {
+  title: string;
+  aside?: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className={cn("min-w-0 rounded-2xl border bg-card", className)}>
+      <div className="flex items-center justify-between gap-3 px-6 pt-5">
+        <h2 className="font-sans text-base font-semibold">{title}</h2>
+        {aside}
+      </div>
+      <div className="px-6 pb-6 pt-4">{children}</div>
+    </section>
+  );
+}
 
-export function Dashboard(){const {projects,team,tasks,expenses,timeEntries,activeWorkspace,profile,chatUnread}=useMiniOps();
-const year=new Date().getFullYear();const today=new Date();today.setHours(0,0,0,0);const t0=today.getTime();const dueOf=(d:string)=>new Date(`${d} ${year}`).getTime();
-const open=tasks.filter(t=>t[5]!=='Done');const dueToday=open.filter(t=>dueOf(t[4])===t0);const overdue=open.filter(t=>dueOf(t[4])<t0);const inProgress=tasks.filter(t=>t[5]==='In Progress');const done=tasks.filter(t=>t[5]==='Done');
-const upcoming=[...open].filter(t=>dueOf(t[4])>=t0).sort((a,b)=>dueOf(a[4])-dueOf(b[4])).slice(0,4);
-const active=projects.filter(p=>p.status!=='Completed');const attention=projects.filter(p=>p.health!=='Healthy').slice(0,4);
-const hours=timeEntries.reduce((s,e)=>s+Number(e[4]),0);const spend=expenses.reduce((s,e)=>s+Number(e[3]),0);const unread=chatUnread;
-const capacity=team.length*160;const billable=team.reduce((s,m)=>s+Number(m[4]),0);const util=capacity?billable/capacity*100:0;
-const idOf=(name:string)=>team.find(m=>m[1]===name)?.[0];
-const workingOn=team.slice(0,6).map(m=>({m,task:tasks.find(t=>t[2]===m[1]&&t[5]==='In Progress')??tasks.find(t=>t[2]===m[1]&&t[5]!=='Done')}));
-const feed=[...done.map(t=>({who:t[2],text:<>completed <b>{t[0]}</b></>,meta:t[1],icon:<CheckCircle2 className="size-3.5 text-positive"/>})),...timeEntries.slice(0,3).map(e=>({who:e[1],text:<>logged <b>{e[4]}h</b> on {e[3]}</>,meta:e[2],icon:<Clock3 className="size-3.5 text-info"/>})),...inProgress.slice(0,2).map(t=>({who:t[2],text:<>started <b>{t[0]}</b></>,meta:t[1],icon:<Activity className="size-3.5 text-primary"/>}))].slice(0,6);
-const hour=new Date().getHours();const greet=hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';
-return <><PageHeader title={`${greet}, ${profile.name.split(' ')[0]}`} description={`${activeWorkspace.name} · here's what needs your attention today.`} action={<Button asChild><Link to="/tasks"><Plus/>New task</Link></Button>}/>
+function Kpi({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: string;
+  hint: ReactNode;
+  tone?: "pos" | "neg";
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-2xl border bg-card px-5 py-4 md:px-6 md:py-5">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          "font-display text-[26px] font-semibold leading-tight tabular-nums md:text-[30px]",
+          tone === "pos" && "text-positive",
+          tone === "neg" && "text-destructive",
+        )}
+      >
+        {value}
+      </span>
+      <span className="flex flex-wrap items-center gap-1.5 text-[13px] text-subtle-foreground">
+        {hint}
+      </span>
+    </div>
+  );
+}
 
-<div className="metric-grid"><Kpi label="Due today" value={dueToday.length} to="/tasks" icon={<CalendarClock className="size-5"/>} tone="bg-primary-soft text-primary"/><Kpi label="In progress" value={inProgress.length} to="/tasks" icon={<Activity className="size-5"/>} tone="bg-info-soft text-info"/><Kpi label="Overdue" value={overdue.length} to="/tasks" icon={<AlertTriangle className="size-5"/>} tone={overdue.length?'bg-danger-soft text-destructive':'bg-secondary text-muted-foreground'}/><Kpi label="Active projects" value={active.length} to="/projects" icon={<BriefcaseBusiness className="size-5"/>} tone="bg-positive-soft text-positive"/></div>
-<div className="mt-3 grid grid-cols-1 gap-1 rounded-2xl bg-secondary/70 p-1 sm:grid-cols-2 xl:grid-cols-4"><Mini label="Team members" value={team.length} to="/team" icon={<Users className="size-4"/>}/><Mini label="Hours logged" value={hours.toFixed(1)} to="/time" icon={<Clock3 className="size-4"/>}/><Mini label="Unread messages" value={unread} to="/chat" icon={<MessageSquare className="size-4"/>}/><Mini label="Expenses this month" value={money(spend)} to="/expenses" icon={<Receipt className="size-4"/>}/></div>
+function Delta({
+  value,
+  suffix = "%",
+  good = true,
+}: {
+  value: number;
+  suffix?: string;
+  good?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 font-medium",
+        good ? "text-positive" : "text-muted-foreground",
+      )}
+    >
+      <ArrowUp className={cn("size-3", value < 0 && "rotate-180")} />
+      {Math.abs(value).toFixed(1)}
+      {suffix}
+    </span>
+  );
+}
 
-<div className="mt-6 grid gap-6">
-<Panel title="Today's work" icon={<CheckSquare className="size-4 text-primary"/>} action={<More to="/tasks">All tasks</More>}>{[...overdue,...dueToday,...inProgress.filter(t=>!dueToday.includes(t)&&!overdue.includes(t))].slice(0,6).map(t=>{const late=overdue.includes(t);return <div key={t[0]} className="flex items-center gap-3 border-b border-border/40 py-3 last:border-0"><span className={cn('size-2 shrink-0 rounded-full',late?'bg-destructive':t[5]==='In Progress'?'bg-primary':'bg-muted-foreground/40')}/><span className="min-w-0 flex-1"><b className="block truncate text-sm">{t[0]}</b><small className="block truncate text-xs text-muted-foreground">{t[1]}</small></span><UserAvatar id={idOf(t[2])} name={t[2]} className="hidden size-7 sm:inline-grid"/><span className={cn('shrink-0 whitespace-nowrap text-right text-xs font-medium',late?'text-destructive':'text-muted-foreground')}>{late?`Overdue · ${t[4]}`:t[4]}</span></div>})}{!open.length&&<p className="py-8 text-center text-sm text-muted-foreground">Nothing due — enjoy the calm.</p>}</Panel></div>
+function MoreLink({ to, children }: { to: string; children: ReactNode }) {
+  return (
+    <Link
+      to={to as never}
+      className="inline-flex items-center gap-1 text-sm font-semibold text-accent-foreground hover:underline"
+    >
+      {children}
+      <ArrowRight className="size-3.5" />
+    </Link>
+  );
+}
 
-<div className="mt-6 grid gap-6 lg:grid-cols-2">
-<Panel title="Who's working on what" icon={<Users className="size-4 text-primary"/>} action={<More to="/team">Team</More>}>{workingOn.map(({m,task})=><div key={m[0]} className="flex items-center gap-3 border-b border-border/40 py-2.5 last:border-0"><UserAvatar id={m[0]} name={m[1]}/><span className="min-w-0 flex-1"><b className="block truncate text-sm">{m[1]}</b><small className="block truncate text-xs text-muted-foreground">{task?task[0]:'Available'}</small></span>{task?<Status>{task[5]}</Status>:<span className="text-xs text-positive">Free</span>}</div>)}</Panel>
-<Panel title="Projects needing attention" icon={<BriefcaseBusiness className="size-4 text-primary"/>} action={<More to="/projects">Projects</More>}>{attention.map(p=><Link key={p.id} to="/projects/$projectSlug" params={{projectSlug:p.id}} className="block border-b border-border/40 py-3 last:border-0 hover:opacity-80"><div className="flex items-center justify-between gap-3"><span className="min-w-0"><b className="block truncate text-sm">{p.name}</b><small className="text-xs text-muted-foreground">{p.client}</small></span><Status>{p.health}</Status></div><div className="mt-2 flex items-center gap-2"><div className="h-1.5 flex-1 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{width:`${Math.min(100,p.progress)}%`}}/></div><span className="font-mono text-xs text-muted-foreground">{p.progress}%</span></div></Link>)}{!attention.length&&<p className="py-6 text-sm text-muted-foreground">All projects are on track.</p>}</Panel>
-<Panel title="Team activity" icon={<Activity className="size-4 text-primary"/>}><ol className="space-y-3.5">{feed.map((f,i)=><li key={i} className="flex gap-3"><span className="relative"><UserAvatar id={idOf(f.who)} name={f.who} className="size-7"/><span className="absolute -bottom-1 -right-1 grid size-4 place-items-center rounded-full bg-card">{f.icon}</span></span><span className="min-w-0 text-sm"><span><b>{f.who.split(' ')[0]}</b> {f.text}</span><small className="block truncate text-xs text-muted-foreground">{f.meta}</small></span></li>)}</ol></Panel>
-<div className="grid gap-6"><Panel title="Upcoming" icon={<CalendarClock className="size-4 text-primary"/>}>{upcoming.map(t=><div key={t[0]} className="flex items-center gap-3 py-2"><span className="w-14 shrink-0 rounded-lg bg-secondary py-1 text-center text-xs font-semibold">{t[4]}</span><span className="min-w-0 flex-1 truncate text-sm">{t[0]}</span><small className="text-xs text-muted-foreground">{t[3]}</small></div>)}{!upcoming.length&&<p className="text-sm text-muted-foreground">No upcoming deadlines.</p>}</Panel>
-<Panel title="Time & capacity" icon={<Clock3 className="size-4 text-primary"/>} action={<More to="/time">Time</More>}><div className="flex items-end justify-between"><span><b className="font-mono text-2xl font-semibold tabular-nums">{util.toFixed(0)}%</b><small className="ml-2 text-sm text-muted-foreground">team utilization</small></span><small className="text-xs text-muted-foreground">{billable.toLocaleString()} / {capacity.toLocaleString()} h</small></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{width:`${Math.min(100,util)}%`}}/></div>{unread>0&&<Link to="/chat" className="mt-4 flex items-center gap-2 rounded-lg bg-primary-soft/60 px-3 py-2 text-sm text-primary"><MessageSquare className="size-4"/>{unread} unread messages in Chat<ArrowRight className="ml-auto size-3"/></Link>}</Panel></div>
-</div></>}
+function TrendChart({
+  data,
+}: {
+  data: { month: string; revenue: number; cost: number; profit: number }[];
+}) {
+  return (
+    <div className="h-[260px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={data} margin={{ left: -8, right: 4, top: 8, bottom: 0 }} barGap={6}>
+          <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="4 4" />
+          <XAxis
+            dataKey="month"
+            axisLine={false}
+            tickLine={false}
+            tick={{ fontSize: 12, fill: "var(--subtle-foreground)" }}
+          />
+          <YAxis
+            axisLine={false}
+            tickLine={false}
+            width={52}
+            tick={{ fontSize: 12, fill: "var(--subtle-foreground)" }}
+            tickFormatter={(v: number) => (v ? `$${Math.round(v / 1000)}k` : "0")}
+          />
+          <Tooltip
+            cursor={{ fill: "var(--secondary)", opacity: 0.6 }}
+            formatter={(v: number) => money(v)}
+            contentStyle={{
+              borderRadius: 12,
+              border: "1px solid var(--border)",
+              background: "var(--popover)",
+            }}
+          />
+          <Bar
+            dataKey="revenue"
+            name="Revenue"
+            fill="var(--chart-revenue)"
+            radius={[5, 5, 0, 0]}
+            maxBarSize={22}
+          />
+          <Bar
+            dataKey="cost"
+            name="Expenses"
+            fill="var(--chart-cost)"
+            radius={[5, 5, 0, 0]}
+            maxBarSize={22}
+          />
+          <Line
+            dataKey="profit"
+            name="Profit"
+            stroke="var(--chart-profit)"
+            strokeWidth={2.5}
+            dot={{ r: 3.5, fill: "var(--card)", strokeWidth: 2 }}
+            activeDot={{ r: 5 }}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function GoalRing({ pct, pace, size = 132 }: { pct: number; pace: number; size?: number }) {
+  const r = size / 2 - 10;
+  const c = 2 * Math.PI * r;
+  const a = pace * 2 * Math.PI - Math.PI / 2;
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        role="img"
+        aria-label={`${Math.round(pct * 100)}% of goal`}
+      >
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="var(--secondary)"
+          strokeWidth={12}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="var(--primary)"
+          strokeWidth={12}
+          strokeLinecap="round"
+          strokeDasharray={`${c * Math.min(pct, 1)} ${c}`}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+        <circle
+          cx={size / 2 + r * Math.cos(a)}
+          cy={size / 2 + r * Math.sin(a)}
+          r={5}
+          fill="var(--foreground)"
+          stroke="var(--card)"
+          strokeWidth={2}
+        >
+          <title>Where you should be today</title>
+        </circle>
+      </svg>
+      <div className="absolute inset-0 grid place-content-center text-center">
+        <b className="font-display text-2xl font-semibold">{Math.round(pct * 100)}%</b>
+        <span className="text-[11px] text-subtle-foreground">of goal</span>
+      </div>
+    </div>
+  );
+}
+
+function Attention({
+  icon,
+  tone,
+  title,
+  body,
+  to,
+  cta,
+}: {
+  icon: ReactNode;
+  tone: "bad" | "warn" | "info";
+  title: string;
+  body: string;
+  to: string;
+  cta: string;
+}) {
+  return (
+    <div className="flex gap-4 rounded-2xl border bg-card p-5 md:p-6">
+      <span
+        className={cn(
+          "grid size-10 shrink-0 place-items-center rounded-xl",
+          tone === "bad" && "bg-danger-soft text-destructive",
+          tone === "warn" && "bg-warning-soft text-warning",
+          tone === "info" && "bg-info-soft text-info",
+        )}
+      >
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <b className="block font-semibold">{title}</b>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{body}</p>
+        <div className="mt-3">
+          <MoreLink to={to}>{cta}</MoreLink>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ListRow({
+  to,
+  title,
+  sub,
+  chip,
+  value,
+  negative,
+}: {
+  to: string;
+  title: string;
+  sub: string;
+  chip: ReactNode;
+  value: string;
+  negative?: boolean;
+}) {
+  return (
+    <Link
+      to={to as never}
+      className="-mx-3 grid grid-cols-[minmax(0,1fr)_auto_64px] items-center gap-3 rounded-lg px-3 py-3 hover:bg-secondary/70"
+    >
+      <span className="min-w-0">
+        <b className="block truncate font-semibold">{title}</b>
+        <small className="block truncate text-[13px] text-subtle-foreground">{sub}</small>
+      </span>
+      <span className="hidden sm:block">{chip}</span>
+      <span className={cn("text-right font-semibold tabular-nums", negative && "text-destructive")}>
+        {value}
+      </span>
+    </Link>
+  );
+}
+
+export function Dashboard() {
+  const { projects, clients, tasks, subscriptions, activeWorkspace, profile } = useMiniOps();
+  const [period, setPeriod] = useState<"month" | "quarter" | "year">("month");
+  const sample = projects.length === 0;
+
+  const homeProjects: HomeProject[] = sample
+    ? SAMPLE_HOME_PROJECTS
+    : projects
+        .filter((p) => p.status !== "Completed")
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          client: p.client,
+          revenue: p.revenue,
+          cost: p.cost,
+          budgetUsed: p.budgetUsed,
+          progress: p.progress,
+        }));
+  const homeClients = sample
+    ? SAMPLE_HOME_CLIENTS.map((c) => ({
+        name: c.name,
+        profit: c.revenue - c.cost,
+        margin: marginOf(c.revenue, c.cost),
+        payDays: c.payDays as number | undefined,
+      }))
+    : clients.map((c) => ({
+        name: c[1],
+        profit: Math.round((c[3] * c[4]) / 100),
+        margin: Math.round(c[4]),
+        payDays: undefined as number | undefined,
+      }));
+
+  // Headline numbers: from the trend in sample mode, from projects otherwise.
+  const last = SAMPLE_TREND[SAMPLE_TREND.length - 1]!;
+  const prev = SAMPLE_TREND[SAMPLE_TREND.length - 2]!;
+  const revenue = sample ? last.revenue : homeProjects.reduce((s, p) => s + p.revenue, 0);
+  const cost = sample ? last.cost : homeProjects.reduce((s, p) => s + p.cost, 0);
+  const profit = revenue - cost;
+  const margin = revenue ? (profit / revenue) * 100 : 0;
+  const target = activeWorkspace.targetMargin ?? 20;
+  const pct = (a: number, b: number) => ((a - b) / b) * 100;
+  const prevMargin = (prev.profit / prev.revenue) * 100;
+
+  const ranked = [...homeProjects].sort(
+    (a, b) => marginOf(a.revenue, a.cost) - marginOf(b.revenue, b.cost),
+  );
+  const worst = ranked.find((p) => healthOf(p) !== "good");
+
+  // Things to act on.
+  const attention: ReactNode[] = [];
+  if (worst) {
+    const over = worst.cost - worst.revenue;
+    attention.push(
+      <Attention
+        key="project"
+        icon={<TrendingDown className="size-[18px]" />}
+        tone={healthOf(worst) === "loss" ? "bad" : "warn"}
+        title={`${worst.name} ${healthOf(worst) === "loss" ? "is losing money" : "is at risk"}`}
+        body={
+          over > 0
+            ? `Costs are ${money(over)} over the fee with ${Math.max(0, 100 - worst.progress)}% of the work left.`
+            : `${worst.budgetUsed}% of the budget is used with ${worst.progress}% of the work done.`
+        }
+        to={sample ? "/projects" : `/projects/${worst.id}`}
+        cta="Review project"
+      />,
+    );
+  }
+  if (sample) {
+    attention.push(
+      <Attention
+        key="subs"
+        icon={<Repeat className="size-[18px]" />}
+        tone="warn"
+        title="$234 a month on unused tools"
+        body="Adobe CC, Webflow and Loom haven't been used in over 45 days."
+        to="/subscriptions"
+        cta="See subscriptions"
+      />,
+      <Attention
+        key="bank"
+        icon={<Upload className="size-[18px]" />}
+        tone="info"
+        title="3 transactions need a category"
+        body="From your Payoneer statement uploaded on Oct 31."
+        to="/bank"
+        cta="Review now"
+      />,
+    );
+  } else {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const overdue = tasks.filter(
+      (t) =>
+        t[5] !== "Done" && new Date(`${t[4]} ${today.getFullYear()}`).getTime() < today.getTime(),
+    );
+    if (overdue.length)
+      attention.push(
+        <Attention
+          key="overdue"
+          icon={<AlertTriangle className="size-[18px]" />}
+          tone="warn"
+          title={`${overdue.length} ${overdue.length === 1 ? "task is" : "tasks are"} overdue`}
+          body={`Oldest: ${overdue[0]![0]} on ${overdue[0]![1]}.`}
+          to="/tasks"
+          cta="See tasks"
+        />,
+      );
+    const monthly = subscriptions
+      .filter((s) => s.status === "Active")
+      .reduce(
+        (sum, s) =>
+          sum +
+          (s.billingCycle === "Yearly"
+            ? s.amount / 12
+            : s.billingCycle === "Quarterly"
+              ? s.amount / 3
+              : s.billingCycle === "Monthly"
+                ? s.amount
+                : 0),
+        0,
+      );
+    if (monthly > 0)
+      attention.push(
+        <Attention
+          key="subs"
+          icon={<Repeat className="size-[18px]" />}
+          tone="info"
+          title={`${money(monthly)} a month on subscriptions`}
+          body="Check for tools nobody uses any more."
+          to="/subscriptions"
+          cta="See subscriptions"
+        />,
+      );
+  }
+
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const goalPct = 0.845;
+  const goalPace = 0.833;
+
+  return (
+    <>
+      <PageHeader
+        title={`${greet}, ${profile.name.split(" ")[0]}`}
+        description={
+          sample
+            ? `Here's how a business like ${activeWorkspace.name} looks once projects are in.`
+            : `Here's how ${activeWorkspace.name} is doing across ${homeProjects.length} active projects.`
+        }
+        action={
+          <div className="flex flex-wrap items-center gap-3">
+            {sample && <SampleDataBadge />}
+            <Segmented
+              value={period}
+              onChange={(v) => {
+                if (v !== "month")
+                  toast("Quarter and year views arrive once the backend reports monthly totals");
+                setPeriod("month");
+              }}
+              options={[
+                ["month", sample ? "October" : "Now"],
+                ["quarter", "This quarter"],
+                ["year", "This year"],
+              ]}
+            />
+          </div>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4 xl:gap-5">
+        <Kpi
+          label="Revenue"
+          value={money(revenue)}
+          hint={
+            sample ? (
+              <>
+                <Delta value={pct(last.revenue, prev.revenue)} /> vs September
+              </>
+            ) : (
+              "Fees on active projects"
+            )
+          }
+        />
+        <Kpi
+          label="Expenses"
+          value={money(cost)}
+          hint={
+            sample ? (
+              <>
+                <Delta value={pct(last.cost, prev.cost)} good={false} /> vs September
+              </>
+            ) : (
+              "Costs so far"
+            )
+          }
+        />
+        <Kpi
+          label="Profit"
+          value={money(profit)}
+          tone={profit >= 0 ? "pos" : "neg"}
+          hint={
+            sample ? (
+              <>
+                <Delta value={pct(last.profit, prev.profit)} /> vs September
+              </>
+            ) : (
+              "Fees minus costs"
+            )
+          }
+        />
+        <Kpi
+          label="Profit margin"
+          value={`${margin.toFixed(1)}%`}
+          hint={
+            <>
+              {sample && <Delta value={margin - prevMargin} suffix=" pts" />}
+              goal {target}%
+            </>
+          }
+        />
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Card
+          title="Revenue, expenses and profit"
+          aside={
+            <div className="flex flex-wrap items-center gap-4 text-[13px] text-muted-foreground">
+              {!sample && <SampleDataBadge />}
+              <span className="inline-flex items-center gap-1.5">
+                <i className="size-2.5 rounded-sm bg-[var(--chart-revenue)]" />
+                Revenue
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <i className="size-2.5 rounded-sm bg-[var(--chart-cost)]" />
+                Expenses
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <i className="h-0.5 w-3 rounded bg-[var(--chart-profit)]" />
+                Profit
+              </span>
+            </div>
+          }
+        >
+          <TrendChart data={SAMPLE_TREND} />
+        </Card>
+        <Card title="2026 revenue goal" aside={<MoreLink to="/goals">Goals</MoreLink>}>
+          <div className="flex flex-wrap items-center gap-5">
+            <GoalRing pct={goalPct} pace={goalPace} />
+            <div className="min-w-0 flex-1">
+              <Chip tone="ok">
+                <span className="size-1.5 rounded-full bg-current" />
+                On pace
+              </Chip>
+              <p className="mt-2.5 font-display text-[26px] font-semibold leading-none">
+                $405.6k{" "}
+                <span className="font-sans text-sm font-normal text-subtle-foreground">
+                  of $480k
+                </span>
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                83% of the year has passed and you've reached 84.5% of your goal.
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-secondary p-4">
+              <span className="text-[13px] text-subtle-foreground">Needed per month</span>
+              <b className="mt-2 block text-lg font-semibold tabular-nums">{kmoney(37200)}</b>
+            </div>
+            <div className="rounded-xl bg-secondary p-4">
+              <span className="text-[13px] text-subtle-foreground">Your 3-month average</span>
+              <b className="mt-2 block text-lg font-semibold tabular-nums text-positive">
+                {kmoney(48000)}
+              </b>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {attention.length > 0 && (
+        <div className="mt-8">
+          <h2 className="mb-3.5 font-sans text-lg font-semibold">Needs your attention</h2>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">{attention}</div>
+        </div>
+      )}
+
+      <div className="mt-8 grid gap-5 lg:grid-cols-2">
+        <Card
+          title="Projects"
+          aside={<span className="text-[13px] text-subtle-foreground">Margin, lowest first</span>}
+        >
+          {ranked.slice(0, 5).map((p) => {
+            const m = marginOf(p.revenue, p.cost);
+            const [label, tone] = HEALTH[healthOf(p)];
+            return (
+              <ListRow
+                key={p.id}
+                to={sample ? "/projects" : `/projects/${p.id}`}
+                title={p.name}
+                sub={`${p.client} · ${p.budgetUsed}% of budget used`}
+                chip={<Chip tone={tone}>{label}</Chip>}
+                value={`${m}%`}
+                negative={m < 0}
+              />
+            );
+          })}
+          {!ranked.length && (
+            <p className="py-6 text-sm text-muted-foreground">No active projects yet.</p>
+          )}
+          <div className="mt-2">
+            <MoreLink to="/projects">All projects</MoreLink>
+          </div>
+        </Card>
+        <Card
+          title="Clients"
+          aside={<span className="text-[13px] text-subtle-foreground">Profit this year</span>}
+        >
+          {[...homeClients]
+            .sort((a, b) => b.profit - a.profit)
+            .slice(0, 5)
+            .map((c) => {
+              const [label, tone] = GRADE[gradeOf(c.margin, c.payDays)];
+              return (
+                <ListRow
+                  key={c.name}
+                  to="/clients"
+                  title={c.name}
+                  sub={`${c.margin}% margin${c.payDays ? ` · pays in ${c.payDays} days` : ""}`}
+                  chip={<Chip tone={tone}>{label}</Chip>}
+                  value={kmoney(c.profit)}
+                  negative={c.profit < 0}
+                />
+              );
+            })}
+          {!homeClients.length && (
+            <p className="py-6 text-sm text-muted-foreground">No clients yet.</p>
+          )}
+          <div className="mt-2">
+            <MoreLink to="/clients">All clients</MoreLink>
+          </div>
+        </Card>
+      </div>
+    </>
+  );
+}

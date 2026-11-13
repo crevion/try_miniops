@@ -398,3 +398,87 @@ export const AI_SAMPLE_ANSWERS: Record<string, string> = {
   "Where can I cut costs this month?":
     "Three tools look unused: Adobe Creative Cloud ($180), Webflow ($39) and Loom ($15). Cancelling them saves $234 a month, or $2,808 a year. Figma also has 2 unused seats.",
 };
+
+// Home (business health) samples, used when a workspace has no projects yet
+// and for the monthly trend, which the backend does not report yet.
+export const SAMPLE_TREND = [
+  { month: "May", revenue: 38200, cost: 33900 },
+  { month: "Jun", revenue: 41500, cost: 35200 },
+  { month: "Jul", revenue: 39800, cost: 36800 },
+  { month: "Aug", revenue: 44100, cost: 37400 },
+  { month: "Sep", revenue: 47600, cost: 39100 },
+  { month: "Oct", revenue: 52400, cost: 41000 },
+].map((m) => ({ ...m, profit: m.revenue - m.cost }));
+
+export type HomeProject = {
+  id: string;
+  name: string;
+  client: string;
+  revenue: number;
+  cost: number;
+  budgetUsed: number;
+  progress: number;
+};
+export const SAMPLE_HOME_PROJECTS: HomeProject[] = [
+  {
+    id: "brightline",
+    name: "Website redesign",
+    client: "Brightline",
+    revenue: 18400,
+    cost: 11900,
+    budgetUsed: 65,
+    progress: 25,
+  },
+  {
+    id: "kora-brand",
+    name: "Brand refresh",
+    client: "Kora Foods",
+    revenue: 9600,
+    cost: 7870,
+    budgetUsed: 85,
+    progress: 60,
+  },
+  {
+    id: "nimbus-seo",
+    name: "Q4 SEO retainer",
+    client: "Nimbus Health",
+    revenue: 4500,
+    cost: 2250,
+    budgetUsed: 50,
+    progress: 55,
+  },
+  {
+    id: "tallyo-app",
+    name: "Mobile app MVP",
+    client: "Tallyo",
+    revenue: 26000,
+    cost: 27300,
+    budgetUsed: 105,
+    progress: 70,
+  },
+  {
+    id: "kora-social",
+    name: "Social content retainer",
+    client: "Kora Foods",
+    revenue: 3200,
+    cost: 2100,
+    budgetUsed: 66,
+    progress: 66,
+  },
+  {
+    id: "ostro-video",
+    name: "Brand video",
+    client: "Ostro Bikes",
+    revenue: 6800,
+    cost: 6450,
+    budgetUsed: 95,
+    progress: 80,
+  },
+];
+export const SAMPLE_HOME_CLIENTS = [
+  { name: "Nimbus Health", revenue: 31500, cost: 16100, payDays: 6 },
+  { name: "Brightline", revenue: 42600, cost: 28200, payDays: 12 },
+  { name: "Kora Foods", revenue: 51800, cost: 39700, payDays: 21 },
+  { name: "Ostro Bikes", revenue: 14200, cost: 12900, payDays: 34 },
+  { name: "Tallyo", revenue: 44000, cost: 46100, payDays: 45 },
+];
