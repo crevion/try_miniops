@@ -64,7 +64,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Metric, MobileCard, MobileField, PageHeader, Status } from "@/components/miniops/core";
-import { InlineDate, InlinePick, InlineText, saveWithUndo } from "@/components/miniops/inline-edit";
+import {
+  InlineDate,
+  InlinePick,
+  InlineText,
+  OpenLink,
+  saveWithUndo,
+} from "@/components/miniops/inline-edit";
 import { Section } from "@/components/miniops/forms";
 import { LinkedText } from "@/components/miniops/linked-text";
 import { ProjectFiles } from "./project-files";
@@ -546,24 +552,15 @@ function useProjectEdit(p: Project) {
 
 export function ProjectNameEdit({ project, className }: { project: Project; className?: string }) {
   const edit = useProjectEdit(project);
-  const navigate = useNavigate();
   return (
     <InlineText
       value={project.name}
       onSave={edit.rename}
       disabled={!edit.can}
       label="Project name"
-      onOpen={() =>
-        void navigate({ to: "/projects/$projectSlug", params: { projectSlug: project.id } })
-      }
+      open={<OpenLink to="/projects/$projectSlug" params={{ projectSlug: project.id }} />}
     >
-      <Link
-        to="/projects/$projectSlug"
-        params={{ projectSlug: project.id }}
-        className={cn("font-semibold hover:text-primary", className)}
-      >
-        {project.name}
-      </Link>
+      <span className={cn("font-semibold", className)}>{project.name}</span>
     </InlineText>
   );
 }

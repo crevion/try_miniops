@@ -65,7 +65,7 @@ import { SearchableSelect } from "@/components/miniops/select-search";
 import { formatDisplayDate, toIso } from "@/components/miniops/date-time";
 import { money } from "@/data/mock";
 import { CLIENT_STATUSES, type ClientStatus, type ClientWrite } from "@/lib/api";
-import { InlinePick, InlineText, saveWithUndo } from "@/components/miniops/inline-edit";
+import { InlinePick, InlineText, OpenLink, saveWithUndo } from "@/components/miniops/inline-edit";
 import { ErrorState, HealthChip, NoAccess, ProjectFormDialog, SignInPrompt } from "./projects";
 import { useMiniOps, type ClientInput, type ClientItem } from "./store";
 
@@ -302,24 +302,15 @@ function useClientEdit(c: ClientItem) {
 
 function ClientNameEdit({ client, className }: { client: ClientItem; className?: string }) {
   const edit = useClientEdit(client);
-  const navigate = useNavigate();
   return (
     <InlineText
       value={client.name}
       onSave={edit.rename}
       disabled={!edit.can}
       label="Client name"
-      onOpen={() =>
-        void navigate({ to: "/clients/$clientSlug", params: { clientSlug: client.slug } })
-      }
+      open={<OpenLink to="/clients/$clientSlug" params={{ clientSlug: client.slug }} />}
     >
-      <Link
-        to="/clients/$clientSlug"
-        params={{ clientSlug: client.slug }}
-        className={cn("font-medium hover:text-primary", className)}
-      >
-        {client.name}
-      </Link>
+      <span className={cn("font-medium", className)}>{client.name}</span>
     </InlineText>
   );
 }

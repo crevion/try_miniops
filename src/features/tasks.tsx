@@ -104,7 +104,13 @@ import {
 import { cn } from "@/lib/utils";
 import { ErrorState, NoAccess, SignInPrompt } from "./projects";
 import { useMiniOps, useNeeds, useTaskTags, type TaskInput, type TaskItem } from "./store";
-import { InlineDate, InlinePick, InlineText, saveWithUndo } from "@/components/miniops/inline-edit";
+import {
+  InlineDate,
+  InlinePick,
+  InlineText,
+  OpenLink,
+  saveWithUndo,
+} from "@/components/miniops/inline-edit";
 import { TaskExportDialog, TaskReport } from "./task-reports";
 
 const NO_PROJECT = "__none__";
@@ -131,6 +137,121 @@ function DueDate({ task, className }: { task: TaskItem; className?: string | und
   );
 }
 
+/* ---------- Quick views and status groups ---------- */
+
+type QuickView = "open" | "mine" | "overdue" | "week" | "upcoming" | "review" | "done" | "all";
+
+const QUICK_VIEWS: [QuickView, string, string | null][] = [
+  ["open", "Active", null],
+  ["mine", "My tasks", "bg-primary"],
+  ["overdue", "Overdue", "bg-destructive"],
+  ["week", "Due this week", "bg-warning"],
+  ["upcoming", "Upcoming", "bg-info"],
+  ["review", "Needs review", "bg-warning"],
+  ["done", "Done", "bg-positive"],
+  ["all", "All", null],
+];
+
+function inQuickView(t: TaskItem, view: QuickView, me: number | undefined) {
+  const open = t.status !== "Done";
+  const today = toIso(new Date());
+  const week = new Date();
+  week.setDate(week.getDate() + 6);
+  const weekEnd = toIso(week);
+  switch (view) {
+    case "open":
+      return open;
+    case "mine":
+      return open && me !== undefined && assigneeIds(t).includes(me);
+    case "overdue":
+      return t.isOverdue;
+    case "week":
+      return open && !!t.dueDate && t.dueDate >= today && t.dueDate <= weekEnd;
+    case "upcoming":
+      return open && !!t.dueDate && t.dueDate > weekEnd;
+    case "review":
+      return t.status === "In Review" || t.status === "Feedback";
+    case "done":
+      return !open;
+    default:
+      return true;
+  }
+}
+
+const GROUP_DOT: Record<TaskStatus, string> = {
+  "To Do": "bg-subtle-foreground",
+  "In Progress": "bg-info",
+  "In Review": "bg-warning",
+  Feedback: "bg-warning",
+  Done: "bg-positive",
+};
+const GROUP_STEP = 15;
+
+/** The list split by status, each part folding away; Done starts folded. */
+function TaskGroups({ rows }: { rows: TaskItem[] }) {
+  const [folded, setFolded] = useListState<string[]>("TaskGroups.folded", ["Done"]);
+  const [shown, setShown] = useState<Record<string, number>>({});
+  const groups = TASK_STATUSES.map((s) => [s, rows.filter((t) => t.status === s)] as const).filter(
+    ([, list]) => list.length > 0,
+  );
+  return (
+    <div className="space-y-4">
+      {groups.map(([status, list]) => {
+        const isFolded = folded.includes(status) && groups.length > 1;
+        const limit = shown[status] ?? GROUP_STEP;
+        return (
+          <section key={status} className="overflow-hidden rounded-2xl border bg-card">
+            <button
+              type="button"
+              aria-expanded={!isFolded}
+              onClick={() =>
+                setFolded((f) =>
+                  f.includes(status) ? f.filter((x) => x !== status) : [...f, status],
+                )
+              }
+              className="flex w-full items-center gap-2.5 px-5 py-3.5 text-left hover:bg-secondary/50"
+            >
+              <ChevronRight
+                className={cn(
+                  "size-4 text-subtle-foreground transition-transform",
+                  !isFolded && "rotate-90",
+                )}
+              />
+              <span className={cn("size-2.5 rounded-full", GROUP_DOT[status])} />
+              <span className="font-semibold">{status}</span>
+              <span className="rounded-full bg-secondary px-2 text-xs tabular-nums text-muted-foreground">
+                {list.length}
+              </span>
+              {list.some((t) => t.isOverdue) && (
+                <span className="text-xs font-medium text-destructive">
+                  {list.filter((t) => t.isOverdue).length} overdue
+                </span>
+              )}
+            </button>
+            {!isFolded && (
+              <div className="border-t [&_.desktop-table>div]:rounded-none [&_.desktop-table>div]:border-0">
+                <TaskTable rows={list.slice(0, limit)} />
+                {list.length > limit && (
+                  <div className="border-t px-5 py-2.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShown((m) => ({ ...m, [status]: limit + GROUP_STEP * 2 }))}
+                    >
+                      Show {Math.min(GROUP_STEP * 2, list.length - limit)} more
+                      <span className="text-subtle-foreground">· {list.length - limit} hidden</span>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Tasks() {
   const { taskList, tasksState, projects, members, can, authStatus } = useMiniOps();
   const canEdit = can("tasks", "edit");
@@ -143,13 +264,17 @@ export function Tasks() {
   const [assignee, setAssignee] = useListState("Tasks.assignee", "");
   const [tag, setTag] = useListState("Tasks.tag", "");
   const [status, setStatus] = useListState("Tasks.status", "all");
+  const [quick, setQuick] = useListState<QuickView>("Tasks.quick", "open");
+  const [groupBy, setGroupBy] = useListState<"status" | "none">("Tasks.groupBy", "status");
+  const me = members.find((m) => m.isMe)?.id;
   const [priority, setPriority] = useListState("Tasks.priority", "all");
   const [range, setRange] = useListState<IsoRange>("Tasks.range", { from: "", to: "" });
   const [page, setPage] = useListState("Tasks.page", 1);
   // New filters start from the first page.
-  useResetPageOnFilterChange([q, project, assignee, tag, status, priority, range], setPage);
+  useResetPageOnFilterChange([q, project, assignee, tag, status, priority, range, quick], setPage);
 
-  const rows = useMemo(() => {
+  // Every filter except the quick view, so each quick view can show its count.
+  const base = useMemo(() => {
     const term = q.trim().toLowerCase();
     // Shared tasks are listed once; each person's part is on the task's page.
     return taskList
@@ -174,6 +299,12 @@ export function Tasks() {
       })
       .sort(byUrgency);
   }, [taskList, q, project, assignee, tag, status, priority, range]);
+  const quickCounts = useMemo(() => {
+    const c = Object.fromEntries(QUICK_VIEWS.map(([k]) => [k, 0])) as Record<QuickView, number>;
+    for (const t of base) for (const [k] of QUICK_VIEWS) if (inQuickView(t, k, me)) c[k]++;
+    return c;
+  }, [base, me]);
+  const rows = useMemo(() => base.filter((t) => inQuickView(t, quick, me)), [base, quick, me]);
   // The same filters, as the API takes them (for the report and exports).
   const serverFilters = useMemo<TaskFilters>(
     () => ({
@@ -204,6 +335,7 @@ export function Tasks() {
     setStatus("all");
     setPriority("all");
     setRange({ from: "", to: "" });
+    setQuick("all");
   };
 
   const body = () => {
@@ -222,6 +354,40 @@ export function Tasks() {
     if (taskList.length === 0) return <EmptyTasks canEdit={canEdit} />;
     return (
       <>
+        <div
+          role="tablist"
+          aria-label="Quick views"
+          className="-mx-1 mb-4 flex gap-1.5 overflow-x-auto px-1 pb-1"
+        >
+          {QUICK_VIEWS.filter(([k]) => k !== "mine" || me !== undefined).map(
+            ([key, label, tone]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={quick === key}
+                onClick={() => setQuick(key)}
+                className={cn(
+                  "inline-flex h-9 shrink-0 items-center gap-2 rounded-full border px-3.5 text-sm font-medium transition-colors",
+                  quick === key
+                    ? "border-foreground bg-foreground text-background"
+                    : "bg-card text-muted-foreground hover:border-input hover:text-foreground",
+                )}
+              >
+                {tone && <span className={cn("size-2 rounded-full", tone)} />}
+                {label}
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-xs tabular-nums",
+                    quick === key ? "bg-background/20" : "bg-secondary",
+                  )}
+                >
+                  {quickCounts[key]}
+                </span>
+              </button>
+            ),
+          )}
+        </div>
         <div className="toolbar justify-between">
           <div className="flex flex-wrap gap-2">
             {(
@@ -241,6 +407,17 @@ export function Tasks() {
                 {icon} {label}
               </Button>
             ))}
+            {view === "list" && (
+              <Select value={groupBy} onValueChange={(v) => setGroupBy(v as "status" | "none")}>
+                <SelectTrigger className="w-44" aria-label="Group tasks">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="status">Group by status</SelectItem>
+                  <SelectItem value="none">No grouping</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             <div className="relative">
@@ -296,7 +473,7 @@ export function Tasks() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="all">Any status</SelectItem>
                 <SelectItem value={OVERDUE}>Overdue</SelectItem>
                 {TASK_STATUSES.map((s) => (
                   <SelectItem key={s} value={s}>
@@ -335,6 +512,8 @@ export function Tasks() {
               Clear filters
             </Button>
           </div>
+        ) : view === "list" && groupBy === "status" ? (
+          <TaskGroups rows={rows} />
         ) : view === "list" ? (
           <>
             <TaskTable rows={pageRows} />
@@ -545,18 +724,27 @@ function useTaskEdit(task: TaskItem) {
 }
 
 /** Task name: click opens it, double-click renames it. */
-function TaskTitleEdit({ task, className }: { task: TaskItem; className?: string | undefined }) {
+function TaskTitleEdit({
+  task,
+  className,
+  noOpen,
+}: {
+  task: TaskItem;
+  className?: string | undefined;
+  /** The board card has its own Open button. */
+  noOpen?: boolean;
+}) {
   const edit = useTaskEdit(task);
-  const navigate = useNavigate();
   return (
     <InlineText
       value={task.title}
       onSave={edit.rename}
       disabled={!edit.can}
       label="Task name"
-      onOpen={() => void navigate({ to: "/tasks/$taskSlug", params: { taskSlug: task.slug } })}
+      className="w-full"
+      open={noOpen ? null : <OpenLink to="/tasks/$taskSlug" params={{ taskSlug: task.slug }} />}
     >
-      <TaskLink task={task} className={className} />
+      <span className={cn("font-medium", className)}>{task.title}</span>
     </InlineText>
   );
 }
@@ -838,6 +1026,8 @@ function TaskDesktopTable({ rows, showProject }: { rows: TaskItem[]; showProject
 function TaskBoard({ rows, canEdit }: { rows: TaskItem[]; canEdit: boolean }) {
   const { moveTask } = useMiniOps();
   const [over, setOver] = useState<TaskStatus | null>(null);
+  // Long columns show the most urgent cards first, with the rest a click away.
+  const [shown, setShown] = useState<Record<string, number>>({});
 
   async function drop(e: DragEvent, status: TaskStatus) {
     e.preventDefault();
@@ -877,7 +1067,7 @@ function TaskBoard({ rows, canEdit }: { rows: TaskItem[]; canEdit: boolean }) {
               <span className="text-muted-foreground">{column.length}</span>
             </h2>
             <div className="space-y-2">
-              {column.map((t) => (
+              {column.slice(0, shown[status] ?? 20).map((t) => (
                 <div
                   key={t.slug}
                   draggable={canEdit && t.canEdit && !t.subtasks.length}
@@ -890,7 +1080,17 @@ function TaskBoard({ rows, canEdit }: { rows: TaskItem[]; canEdit: boolean }) {
                       "cursor-grab active:cursor-grabbing",
                   )}
                 >
-                  <TaskTitleEdit task={t} className="text-sm" />
+                  <div className="flex items-start gap-1">
+                    <div className="min-w-0 flex-1">
+                      <TaskTitleEdit task={t} className="text-sm" noOpen />
+                    </div>
+                    <OpenLink
+                      to="/tasks/$taskSlug"
+                      params={{ taskSlug: t.slug }}
+                      aria-label={`Open ${t.title}`}
+                      iconOnly
+                    />
+                  </div>
                   <TagList tags={t.tags} className="mt-1.5" />
                   <p className="mt-1 text-xs text-muted-foreground">
                     {t.projectName || "No project"}
@@ -904,6 +1104,16 @@ function TaskBoard({ rows, canEdit }: { rows: TaskItem[]; canEdit: boolean }) {
                   </div>
                 </div>
               ))}
+              {column.length > (shown[status] ?? 20) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setShown((m) => ({ ...m, [status]: (m[status] ?? 20) + 30 }))}
+                >
+                  Show {Math.min(30, column.length - (shown[status] ?? 20))} more
+                </Button>
+              )}
               {column.length === 0 && (
                 <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
                   {canEdit ? "Drop a task here" : "No tasks"}
@@ -1171,22 +1381,15 @@ function partName(s: { title: string; assigneeName: string }, parentTitle: strin
 
 function SubtaskTitleEdit({ task, parentTitle }: { task: TaskItem; parentTitle: string }) {
   const edit = useTaskEdit(task);
-  const navigate = useNavigate();
   return (
     <InlineText
       value={task.title}
       onSave={edit.rename}
       disabled={!edit.can}
       label="Sub-task name"
-      onOpen={() => void navigate({ to: "/tasks/$taskSlug", params: { taskSlug: task.slug } })}
+      open={<OpenLink to="/tasks/$taskSlug" params={{ taskSlug: task.slug }} />}
     >
-      <Link
-        to="/tasks/$taskSlug"
-        params={{ taskSlug: task.slug }}
-        className="font-medium hover:text-primary"
-      >
-        {partName(task, parentTitle)}
-      </Link>
+      <span className="font-medium">{partName(task, parentTitle)}</span>
     </InlineText>
   );
 }

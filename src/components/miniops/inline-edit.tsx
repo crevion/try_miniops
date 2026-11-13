@@ -1,12 +1,6 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
-import { Check, Search } from "lucide-react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { ArrowUpRight, Check, Pencil, Search } from "lucide-react";
+import { Link, type LinkComponentProps } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -282,9 +276,9 @@ export function InlineDate({
 }
 
 /**
- * Text that turns into a box on double-click (or F2). Enter saves, Esc cancels.
- * When the text is also a link, pass `onOpen`: a single click still opens it,
- * a double-click renames instead.
+ * Text that turns into a box on double-click (or F2, or the pencil on touch).
+ * Enter saves, Esc cancels. Opening the item is a separate, always-there
+ * button (`open`), so a double-click never lands you on another page.
  */
 export function InlineText({
   value,
@@ -292,7 +286,7 @@ export function InlineText({
   children,
   label = "Name",
   disabled,
-  onOpen,
+  open,
   className,
   inputClassName,
 }: {
@@ -301,17 +295,14 @@ export function InlineText({
   children: ReactNode;
   label?: string;
   disabled?: boolean;
-  onOpen?: () => void;
+  /** A link that opens the item, shown as an "Open" button beside the name. */
+  open?: ReactNode;
   className?: string;
   inputClassName?: string;
 }) {
   const [editing, setEditing] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const done = useRef(false);
-  useEffect(() => () => clearTimeout(timer.current), []);
-  if (disabled) return <span className={className}>{children}</span>;
   const start = () => {
-    clearTimeout(timer.current);
     window.getSelection()?.removeAllRanges();
     done.current = false;
     setEditing(true);
@@ -343,38 +334,62 @@ export function InlineText({
         )}
       />
     );
-  const onClickCapture = (e: MouseEvent) => {
-    if (!onOpen || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    // Wait a moment: a second click means rename, not open.
-    e.preventDefault();
-    if (e.detail > 1) return;
-    clearTimeout(timer.current);
-    timer.current = setTimeout(onOpen, 230);
-  };
+  if (disabled)
+    return (
+      <span className={cn("inline-flex max-w-full items-center gap-2", className)}>
+        <span className="min-w-0">{children}</span>
+        {open}
+      </span>
+    );
   return (
-    <span
-      className={cn(
-        editable,
-        "inline-block max-w-full cursor-text",
-        onOpen && "cursor-pointer",
-        className,
-      )}
-      title={`Double-click to rename`}
-      tabIndex={-1}
-      onClickCapture={onClickCapture}
-      onDoubleClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        start();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "F2") {
+    <span className={cn("group/name inline-flex max-w-full items-center gap-1.5", className)}>
+      <span
+        role="button"
+        tabIndex={0}
+        aria-label={`${label}: ${value}. Double-click or press Enter to rename`}
+        title="Double-click to rename"
+        className={cn(editable, "min-w-0 cursor-text select-none")}
+        onDoubleClick={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           start();
-        }
-      }}
-    >
-      {children}
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "F2" || e.key === "Enter") {
+            e.preventDefault();
+            start();
+          }
+        }}
+      >
+        {children}
+      </span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          start();
+        }}
+        aria-label={`Rename ${value}`}
+        className="grid size-6 shrink-0 place-items-center rounded-md text-subtle-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-foreground focus-visible:opacity-100 group-hover/name:opacity-100 pointer-coarse:opacity-100"
+      >
+        <Pencil className="size-3.5" />
+      </button>
+      {open}
     </span>
+  );
+}
+
+/** The "Open" button beside an editable name: the one way into the item's page. */
+export function OpenLink({ iconOnly, ...props }: LinkComponentProps & { iconOnly?: boolean }) {
+  return (
+    <Link
+      {...props}
+      onClick={(e) => e.stopPropagation()}
+      title="Open"
+      className="ml-auto inline-flex h-6 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-xs font-medium text-subtle-foreground transition-colors hover:bg-primary-soft hover:text-primary group-hover/name:text-primary"
+    >
+      {!iconOnly && "Open"}
+      <ArrowUpRight className="size-3.5" />
+    </Link>
   );
 }
