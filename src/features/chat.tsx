@@ -899,7 +899,7 @@ function Thread({
       </div>
 
       <Dialog open={!!lightbox} onOpenChange={(o) => !o && setLightbox(null)}>
-        <DialogContent className="max-w-3xl p-3">
+        <DialogContent placement="center" className="max-w-3xl p-3">
           <DialogHeader className="sr-only">
             <DialogTitle>Image preview</DialogTitle>
             <DialogDescription>Shared image</DialogDescription>

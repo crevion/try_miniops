@@ -1109,7 +1109,7 @@ function TaskDetailBody({ task }: { task: TaskItem }) {
         }
         action={(task.canEdit || task.canDelete) && <TaskActions task={task} />}
       />
-      <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
+      <div className="grid items-start gap-6 lg:grid-cols-[2fr_1fr]">
         <Section title="Description">
           <RichText
             html={task.description}
@@ -1368,9 +1368,9 @@ function Subtasks({ task }: { task: TaskItem }) {
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2.5">
+    <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-3 py-2">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="text-right font-medium">{children}</dd>
+      <dd className="min-w-0 font-medium">{children}</dd>
     </div>
   );
 }

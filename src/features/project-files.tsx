@@ -1255,7 +1255,7 @@ function NameDialog({
 function PreviewDialog({ file, onClose }: { file: ApiProjectFile | null; onClose: () => void }) {
   return (
     <Dialog open={file !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-4xl">
+      <DialogContent placement="center" className="sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle className="truncate pr-6">{file?.name}</DialogTitle>
           <DialogDescription>

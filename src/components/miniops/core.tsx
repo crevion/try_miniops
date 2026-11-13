@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import type { PermissionModule } from "@/lib/api";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
@@ -401,6 +401,8 @@ function NewTaskButton({ compact = false, onDone }: { compact?: boolean; onDone?
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  // A soft fade when the page changes; filters and tabs on the same page don't re-run it.
+  const pathname = useRouterState({ select: (s) => s.location.pathname.split("/")[1] ?? "" });
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState(false);
   useEffect(() => {
@@ -493,7 +495,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             <ProfileMenu />
           </div>
         </header>
-        <main className="mx-auto max-w-[1500px] p-4 md:p-6 lg:p-8">{children}</main>
+        <main
+          key={pathname}
+          className="mx-auto max-w-[1500px] p-4 duration-300 animate-in fade-in-0 slide-in-from-bottom-1 md:p-6 lg:p-8"
+        >
+          {children}
+        </main>
       </div>
       <CommandSearch open={search} setOpen={setSearch} />
     </div>
@@ -523,7 +530,7 @@ function CommandSearch({ open, setOpen }: { open: boolean; setOpen: (v: boolean)
     .slice(0, 8);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="top-[20%] translate-y-0 p-0">
+      <DialogContent placement="center" className="top-[20%] translate-y-0 p-0">
         <DialogHeader className="sr-only">
           <DialogTitle>Search MiniOps</DialogTitle>
           <DialogDescription>Search the current workspace.</DialogDescription>

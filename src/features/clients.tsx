@@ -543,7 +543,7 @@ export function ClientDetail({ slug }: { slug: string }) {
         description={`${c.industry || "No industry"} · Client since ${sinceDate(c.createdAt)}`}
         action={canEdit && <ClientActions client={c} />}
       />
-      <div className="mb-8 metric-grid">
+      <div className={cn("mb-8 metric-grid", showMoney && "xl:grid-cols-5")}>
         {showMoney && (
           <>
             <Metric label="Total revenue" value={money(c.revenue)} />
@@ -552,7 +552,7 @@ export function ClientDetail({ slug }: { slug: string }) {
             <Metric label="Average margin" value={c.revenue ? `${c.margin}%` : "—"} />
           </>
         )}
-        <Metric label="Projects" value={`${c.activeProjects} active of ${c.projectCount}`} />
+        <Metric label="Active projects" value={`${c.activeProjects} / ${c.projectCount}`} />
       </div>
       <div className="mb-8 grid gap-8 lg:grid-cols-3">
         <Section title="Contact">

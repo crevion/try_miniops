@@ -855,7 +855,12 @@ export function ProjectDetail({ slug }: { slug: string }) {
         description={`${p.client || "No client"} · ${dateSpan(p)}`}
         action={canEdit && <ProjectActions project={p} />}
       />
-      <div className="mb-6 metric-grid">
+      <div
+        className={cn(
+          "mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4",
+          showMoney ? "xl:grid-cols-6" : "xl:grid-cols-4",
+        )}
+      >
         {showMoney ? (
           <>
             <Metric label="Revenue" value={money(p.revenue)} />
@@ -875,7 +880,7 @@ export function ProjectDetail({ slug }: { slug: string }) {
         )}
       </div>
       <Tabs defaultValue="overview">
-        <TabsList className="mb-6 flex w-full overflow-x-auto [&>*]:flex-1">
+        <TabsList className="mb-6 flex w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({projectTasks.length})</TabsTrigger>
           {canSeeTime && <TabsTrigger value="time">Time ({fmtHours(projectHours)})</TabsTrigger>}
