@@ -20,13 +20,16 @@ import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as WorkspaceActivityRouteImport } from './routes/_workspace.activity'
 import { Route as WorkspaceAdminRouteImport } from './routes/_workspace.admin'
 import { Route as WorkspaceAppRouteImport } from './routes/_workspace.app'
+import { Route as WorkspaceBankRouteImport } from './routes/_workspace.bank'
 import { Route as WorkspaceBillingRouteImport } from './routes/_workspace.billing'
 import { Route as WorkspaceChatRouteImport } from './routes/_workspace.chat'
 import { Route as WorkspaceExpensesRouteImport } from './routes/_workspace.expenses'
+import { Route as WorkspaceGoalsRouteImport } from './routes/_workspace.goals'
 import { Route as WorkspaceNotificationsRouteImport } from './routes/_workspace.notifications'
 import { Route as WorkspaceProfileRouteImport } from './routes/_workspace.profile'
 import { Route as WorkspaceReportsRouteImport } from './routes/_workspace.reports'
 import { Route as WorkspaceSettingsRouteImport } from './routes/_workspace.settings'
+import { Route as WorkspaceSubscriptionsRouteImport } from './routes/_workspace.subscriptions'
 import { Route as WorkspaceTimeRouteImport } from './routes/_workspace.time'
 import { Route as EmployeeIndexRouteImport } from './routes/employee.index'
 import { Route as EmployeeActivityRouteImport } from './routes/employee.activity'
@@ -109,6 +112,11 @@ const WorkspaceAppRoute = WorkspaceAppRouteImport.update({
   path: '/app',
   getParentRoute: () => WorkspaceRoute,
 } as any)
+const WorkspaceBankRoute = WorkspaceBankRouteImport.update({
+  id: '/bank',
+  path: '/bank',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
 const WorkspaceBillingRoute = WorkspaceBillingRouteImport.update({
   id: '/billing',
   path: '/billing',
@@ -122,6 +130,11 @@ const WorkspaceChatRoute = WorkspaceChatRouteImport.update({
 const WorkspaceExpensesRoute = WorkspaceExpensesRouteImport.update({
   id: '/expenses',
   path: '/expenses',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceGoalsRoute = WorkspaceGoalsRouteImport.update({
+  id: '/goals',
+  path: '/goals',
   getParentRoute: () => WorkspaceRoute,
 } as any)
 const WorkspaceNotificationsRoute = WorkspaceNotificationsRouteImport.update({
@@ -142,6 +155,11 @@ const WorkspaceReportsRoute = WorkspaceReportsRouteImport.update({
 const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceSubscriptionsRoute = WorkspaceSubscriptionsRouteImport.update({
+  id: '/subscriptions',
+  path: '/subscriptions',
   getParentRoute: () => WorkspaceRoute,
 } as any)
 const WorkspaceTimeRoute = WorkspaceTimeRouteImport.update({
@@ -295,13 +313,16 @@ export interface FileRoutesByFullPath {
   '/activity': typeof WorkspaceActivityRoute
   '/admin': typeof WorkspaceAdminRoute
   '/app': typeof WorkspaceAppRoute
+  '/bank': typeof WorkspaceBankRoute
   '/billing': typeof WorkspaceBillingRoute
   '/chat': typeof WorkspaceChatRoute
   '/expenses': typeof WorkspaceExpensesRoute
+  '/goals': typeof WorkspaceGoalsRoute
   '/notifications': typeof WorkspaceNotificationsRoute
   '/profile': typeof WorkspaceProfileRoute
   '/reports': typeof WorkspaceReportsRouteWithChildren
   '/settings': typeof WorkspaceSettingsRoute
+  '/subscriptions': typeof WorkspaceSubscriptionsRoute
   '/time': typeof WorkspaceTimeRoute
   '/employee/activity': typeof EmployeeActivityRoute
   '/employee/chat': typeof EmployeeChatRoute
@@ -340,13 +361,16 @@ export interface FileRoutesByTo {
   '/activity': typeof WorkspaceActivityRoute
   '/admin': typeof WorkspaceAdminRoute
   '/app': typeof WorkspaceAppRoute
+  '/bank': typeof WorkspaceBankRoute
   '/billing': typeof WorkspaceBillingRoute
   '/chat': typeof WorkspaceChatRoute
   '/expenses': typeof WorkspaceExpensesRoute
+  '/goals': typeof WorkspaceGoalsRoute
   '/notifications': typeof WorkspaceNotificationsRoute
   '/profile': typeof WorkspaceProfileRoute
   '/reports': typeof WorkspaceReportsRouteWithChildren
   '/settings': typeof WorkspaceSettingsRoute
+  '/subscriptions': typeof WorkspaceSubscriptionsRoute
   '/time': typeof WorkspaceTimeRoute
   '/employee/activity': typeof EmployeeActivityRoute
   '/employee/chat': typeof EmployeeChatRoute
@@ -387,13 +411,16 @@ export interface FileRoutesById {
   '/_workspace/activity': typeof WorkspaceActivityRoute
   '/_workspace/admin': typeof WorkspaceAdminRoute
   '/_workspace/app': typeof WorkspaceAppRoute
+  '/_workspace/bank': typeof WorkspaceBankRoute
   '/_workspace/billing': typeof WorkspaceBillingRoute
   '/_workspace/chat': typeof WorkspaceChatRoute
   '/_workspace/expenses': typeof WorkspaceExpensesRoute
+  '/_workspace/goals': typeof WorkspaceGoalsRoute
   '/_workspace/notifications': typeof WorkspaceNotificationsRoute
   '/_workspace/profile': typeof WorkspaceProfileRoute
   '/_workspace/reports': typeof WorkspaceReportsRouteWithChildren
   '/_workspace/settings': typeof WorkspaceSettingsRoute
+  '/_workspace/subscriptions': typeof WorkspaceSubscriptionsRoute
   '/_workspace/time': typeof WorkspaceTimeRoute
   '/employee/activity': typeof EmployeeActivityRoute
   '/employee/chat': typeof EmployeeChatRoute
@@ -435,13 +462,16 @@ export interface FileRouteTypes {
     | '/activity'
     | '/admin'
     | '/app'
+    | '/bank'
     | '/billing'
     | '/chat'
     | '/expenses'
+    | '/goals'
     | '/notifications'
     | '/profile'
     | '/reports'
     | '/settings'
+    | '/subscriptions'
     | '/time'
     | '/employee/activity'
     | '/employee/chat'
@@ -480,13 +510,16 @@ export interface FileRouteTypes {
     | '/activity'
     | '/admin'
     | '/app'
+    | '/bank'
     | '/billing'
     | '/chat'
     | '/expenses'
+    | '/goals'
     | '/notifications'
     | '/profile'
     | '/reports'
     | '/settings'
+    | '/subscriptions'
     | '/time'
     | '/employee/activity'
     | '/employee/chat'
@@ -526,13 +559,16 @@ export interface FileRouteTypes {
     | '/_workspace/activity'
     | '/_workspace/admin'
     | '/_workspace/app'
+    | '/_workspace/bank'
     | '/_workspace/billing'
     | '/_workspace/chat'
     | '/_workspace/expenses'
+    | '/_workspace/goals'
     | '/_workspace/notifications'
     | '/_workspace/profile'
     | '/_workspace/reports'
     | '/_workspace/settings'
+    | '/_workspace/subscriptions'
     | '/_workspace/time'
     | '/employee/activity'
     | '/employee/chat'
@@ -653,6 +689,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceAppRouteImport
       parentRoute: typeof WorkspaceRoute
     }
+    '/_workspace/bank': {
+      id: '/_workspace/bank'
+      path: '/bank'
+      fullPath: '/bank'
+      preLoaderRoute: typeof WorkspaceBankRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
     '/_workspace/billing': {
       id: '/_workspace/billing'
       path: '/billing'
@@ -672,6 +715,13 @@ declare module '@tanstack/react-router' {
       path: '/expenses'
       fullPath: '/expenses'
       preLoaderRoute: typeof WorkspaceExpensesRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/_workspace/goals': {
+      id: '/_workspace/goals'
+      path: '/goals'
+      fullPath: '/goals'
+      preLoaderRoute: typeof WorkspaceGoalsRouteImport
       parentRoute: typeof WorkspaceRoute
     }
     '/_workspace/notifications': {
@@ -700,6 +750,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof WorkspaceSettingsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/_workspace/subscriptions': {
+      id: '/_workspace/subscriptions'
+      path: '/subscriptions'
+      fullPath: '/subscriptions'
+      preLoaderRoute: typeof WorkspaceSubscriptionsRouteImport
       parentRoute: typeof WorkspaceRoute
     }
     '/_workspace/time': {
@@ -917,13 +974,16 @@ interface WorkspaceRouteChildren {
   WorkspaceActivityRoute: typeof WorkspaceActivityRoute
   WorkspaceAdminRoute: typeof WorkspaceAdminRoute
   WorkspaceAppRoute: typeof WorkspaceAppRoute
+  WorkspaceBankRoute: typeof WorkspaceBankRoute
   WorkspaceBillingRoute: typeof WorkspaceBillingRoute
   WorkspaceChatRoute: typeof WorkspaceChatRoute
   WorkspaceExpensesRoute: typeof WorkspaceExpensesRoute
+  WorkspaceGoalsRoute: typeof WorkspaceGoalsRoute
   WorkspaceNotificationsRoute: typeof WorkspaceNotificationsRoute
   WorkspaceProfileRoute: typeof WorkspaceProfileRoute
   WorkspaceReportsRoute: typeof WorkspaceReportsRouteWithChildren
   WorkspaceSettingsRoute: typeof WorkspaceSettingsRoute
+  WorkspaceSubscriptionsRoute: typeof WorkspaceSubscriptionsRoute
   WorkspaceTimeRoute: typeof WorkspaceTimeRoute
   WorkspaceClientsClientSlugRoute: typeof WorkspaceClientsClientSlugRoute
   WorkspaceProjectsProjectSlugRoute: typeof WorkspaceProjectsProjectSlugRoute
@@ -939,13 +999,16 @@ const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceActivityRoute: WorkspaceActivityRoute,
   WorkspaceAdminRoute: WorkspaceAdminRoute,
   WorkspaceAppRoute: WorkspaceAppRoute,
+  WorkspaceBankRoute: WorkspaceBankRoute,
   WorkspaceBillingRoute: WorkspaceBillingRoute,
   WorkspaceChatRoute: WorkspaceChatRoute,
   WorkspaceExpensesRoute: WorkspaceExpensesRoute,
+  WorkspaceGoalsRoute: WorkspaceGoalsRoute,
   WorkspaceNotificationsRoute: WorkspaceNotificationsRoute,
   WorkspaceProfileRoute: WorkspaceProfileRoute,
   WorkspaceReportsRoute: WorkspaceReportsRouteWithChildren,
   WorkspaceSettingsRoute: WorkspaceSettingsRoute,
+  WorkspaceSubscriptionsRoute: WorkspaceSubscriptionsRoute,
   WorkspaceTimeRoute: WorkspaceTimeRoute,
   WorkspaceClientsClientSlugRoute: WorkspaceClientsClientSlugRoute,
   WorkspaceProjectsProjectSlugRoute: WorkspaceProjectsProjectSlugRoute,

@@ -12,6 +12,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChartColumn,
+  Check,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -39,6 +40,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,7 +83,7 @@ import {
 import { MobileCard, MobileField, PageHeader, Status } from "@/components/miniops/core";
 import { Section } from "@/components/miniops/forms";
 import { RichText, RichTextEditor } from "@/components/miniops/rich-text";
-import { SearchableSelect } from "@/components/miniops/select-search";
+import { SearchableMultiSelect, SearchableSelect } from "@/components/miniops/select-search";
 import { TagInput, TagList } from "@/components/miniops/tag-input";
 import {
   DateInput,
@@ -85,13 +95,22 @@ import {
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
+  type ApiTask,
   type TaskFilters,
+  type TaskWrite,
   type TaskPriority,
   type TaskStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ErrorState, NoAccess, SignInPrompt } from "./projects";
-import { useMiniOps, useTaskTags, type TaskInput, type TaskItem } from "./store";
+import { useMiniOps, useNeeds, useTaskTags, type TaskInput, type TaskItem } from "./store";
+import {
+  InlineDate,
+  InlinePick,
+  InlineText,
+  OpenLink,
+  saveWithUndo,
+} from "@/components/miniops/inline-edit";
 import { TaskExportDialog, TaskReport } from "./task-reports";
 
 const NO_PROJECT = "__none__";
@@ -108,7 +127,7 @@ function byUrgency(a: TaskItem, b: TaskItem) {
   return due || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
 }
 
-function DueDate({ task, className }: { task: TaskItem; className?: string }) {
+function DueDate({ task, className }: { task: TaskItem; className?: string | undefined }) {
   if (!task.dueDate) return <span className="text-muted-foreground">—</span>;
   return (
     <span className={cn(task.isOverdue && "font-medium text-destructive", className)}>
@@ -118,22 +137,144 @@ function DueDate({ task, className }: { task: TaskItem; className?: string }) {
   );
 }
 
+/* ---------- Quick views and status groups ---------- */
+
+type QuickView = "open" | "mine" | "overdue" | "week" | "upcoming" | "review" | "done" | "all";
+
+const QUICK_VIEWS: [QuickView, string, string | null][] = [
+  ["open", "Active", null],
+  ["mine", "My tasks", "bg-primary"],
+  ["overdue", "Overdue", "bg-destructive"],
+  ["week", "Due this week", "bg-warning"],
+  ["upcoming", "Upcoming", "bg-info"],
+  ["review", "Needs review", "bg-warning"],
+  ["done", "Done", "bg-positive"],
+  ["all", "All", null],
+];
+
+function inQuickView(t: TaskItem, view: QuickView, me: number | undefined) {
+  const open = t.status !== "Done";
+  const today = toIso(new Date());
+  const week = new Date();
+  week.setDate(week.getDate() + 6);
+  const weekEnd = toIso(week);
+  switch (view) {
+    case "open":
+      return open;
+    case "mine":
+      return open && me !== undefined && assigneeIds(t).includes(me);
+    case "overdue":
+      return t.isOverdue;
+    case "week":
+      return open && !!t.dueDate && t.dueDate >= today && t.dueDate <= weekEnd;
+    case "upcoming":
+      return open && !!t.dueDate && t.dueDate > weekEnd;
+    case "review":
+      return t.status === "In Review" || t.status === "Feedback";
+    case "done":
+      return !open;
+    default:
+      return true;
+  }
+}
+
+const GROUP_DOT: Record<TaskStatus, string> = {
+  "To Do": "bg-subtle-foreground",
+  "In Progress": "bg-info",
+  "In Review": "bg-warning",
+  Feedback: "bg-warning",
+  Done: "bg-positive",
+};
+const GROUP_STEP = 15;
+
+/** The list split by status, each part folding away; Done starts folded. */
+function TaskGroups({ rows }: { rows: TaskItem[] }) {
+  const [folded, setFolded] = useListState<string[]>("TaskGroups.folded", ["Done"]);
+  const [shown, setShown] = useState<Record<string, number>>({});
+  const groups = TASK_STATUSES.map((s) => [s, rows.filter((t) => t.status === s)] as const).filter(
+    ([, list]) => list.length > 0,
+  );
+  return (
+    <div className="space-y-4">
+      {groups.map(([status, list]) => {
+        const isFolded = folded.includes(status) && groups.length > 1;
+        const limit = shown[status] ?? GROUP_STEP;
+        return (
+          <section key={status} className="overflow-hidden rounded-2xl border bg-card">
+            <button
+              type="button"
+              aria-expanded={!isFolded}
+              onClick={() =>
+                setFolded((f) =>
+                  f.includes(status) ? f.filter((x) => x !== status) : [...f, status],
+                )
+              }
+              className="flex w-full items-center gap-2.5 px-5 py-3.5 text-left hover:bg-secondary/50"
+            >
+              <ChevronRight
+                className={cn(
+                  "size-4 text-subtle-foreground transition-transform",
+                  !isFolded && "rotate-90",
+                )}
+              />
+              <span className={cn("size-2.5 rounded-full", GROUP_DOT[status])} />
+              <span className="font-semibold">{status}</span>
+              <span className="rounded-full bg-secondary px-2 text-xs tabular-nums text-muted-foreground">
+                {list.length}
+              </span>
+              {list.some((t) => t.isOverdue) && (
+                <span className="text-xs font-medium text-destructive">
+                  {list.filter((t) => t.isOverdue).length} overdue
+                </span>
+              )}
+            </button>
+            {!isFolded && (
+              <div className="border-t [&_.desktop-table>div]:rounded-none [&_.desktop-table>div]:border-0">
+                <TaskTable rows={list.slice(0, limit)} />
+                {list.length > limit && (
+                  <div className="border-t px-5 py-2.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShown((m) => ({ ...m, [status]: limit + GROUP_STEP * 2 }))}
+                    >
+                      Show {Math.min(GROUP_STEP * 2, list.length - limit)} more
+                      <span className="text-subtle-foreground">· {list.length - limit} hidden</span>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Tasks() {
   const { taskList, tasksState, projects, members, can, authStatus } = useMiniOps();
   const canEdit = can("tasks", "edit");
-  const [view, setView] = useListState<"list" | "board" | "calendar" | "report">("Tasks.view", "list");
+  const [view, setView] = useListState<"list" | "board" | "calendar" | "report">(
+    "Tasks.view",
+    "list",
+  );
   const [q, setQ] = useListState("Tasks.q", "");
   const [project, setProject] = useListState("Tasks.project", "");
   const [assignee, setAssignee] = useListState("Tasks.assignee", "");
   const [tag, setTag] = useListState("Tasks.tag", "");
   const [status, setStatus] = useListState("Tasks.status", "all");
+  const [quick, setQuick] = useListState<QuickView>("Tasks.quick", "open");
+  const [groupBy, setGroupBy] = useListState<"status" | "none">("Tasks.groupBy", "status");
+  const me = members.find((m) => m.isMe)?.id;
   const [priority, setPriority] = useListState("Tasks.priority", "all");
   const [range, setRange] = useListState<IsoRange>("Tasks.range", { from: "", to: "" });
   const [page, setPage] = useListState("Tasks.page", 1);
   // New filters start from the first page.
-  useResetPageOnFilterChange([q, project, assignee, tag, status, priority, range], setPage);
+  useResetPageOnFilterChange([q, project, assignee, tag, status, priority, range, quick], setPage);
 
-  const rows = useMemo(() => {
+  // Every filter except the quick view, so each quick view can show its count.
+  const base = useMemo(() => {
     const term = q.trim().toLowerCase();
     // Shared tasks are listed once; each person's part is on the task's page.
     return taskList
@@ -148,11 +289,7 @@ export function Tasks() {
             : assigneeIds(t).includes(Number(assignee))),
       )
       .filter((t) =>
-        status === "all"
-          ? true
-          : status === OVERDUE
-            ? t.isOverdue
-            : t.status === status,
+        status === "all" ? true : status === OVERDUE ? t.isOverdue : t.status === status,
       )
       .filter((t) => !tag || t.tags.includes(tag))
       .filter((t) => priority === "all" || t.priority === priority)
@@ -162,6 +299,12 @@ export function Tasks() {
       })
       .sort(byUrgency);
   }, [taskList, q, project, assignee, tag, status, priority, range]);
+  const quickCounts = useMemo(() => {
+    const c = Object.fromEntries(QUICK_VIEWS.map(([k]) => [k, 0])) as Record<QuickView, number>;
+    for (const t of base) for (const [k] of QUICK_VIEWS) if (inQuickView(t, k, me)) c[k]++;
+    return c;
+  }, [base, me]);
+  const rows = useMemo(() => base.filter((t) => inQuickView(t, quick, me)), [base, quick, me]);
   // The same filters, as the API takes them (for the report and exports).
   const serverFilters = useMemo<TaskFilters>(
     () => ({
@@ -192,6 +335,7 @@ export function Tasks() {
     setStatus("all");
     setPriority("all");
     setRange({ from: "", to: "" });
+    setQuick("all");
   };
 
   const body = () => {
@@ -210,6 +354,40 @@ export function Tasks() {
     if (taskList.length === 0) return <EmptyTasks canEdit={canEdit} />;
     return (
       <>
+        <div
+          role="tablist"
+          aria-label="Quick views"
+          className="-mx-1 mb-4 flex gap-1.5 overflow-x-auto px-1 pb-1"
+        >
+          {QUICK_VIEWS.filter(([k]) => k !== "mine" || me !== undefined).map(
+            ([key, label, tone]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={quick === key}
+                onClick={() => setQuick(key)}
+                className={cn(
+                  "inline-flex h-9 shrink-0 items-center gap-2 rounded-full border px-3.5 text-sm font-medium transition-colors",
+                  quick === key
+                    ? "border-foreground bg-foreground text-background"
+                    : "bg-card text-muted-foreground hover:border-input hover:text-foreground",
+                )}
+              >
+                {tone && <span className={cn("size-2 rounded-full", tone)} />}
+                {label}
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-xs tabular-nums",
+                    quick === key ? "bg-background/20" : "bg-secondary",
+                  )}
+                >
+                  {quickCounts[key]}
+                </span>
+              </button>
+            ),
+          )}
+        </div>
         <div className="toolbar justify-between">
           <div className="flex flex-wrap gap-2">
             {(
@@ -229,6 +407,17 @@ export function Tasks() {
                 {icon} {label}
               </Button>
             ))}
+            {view === "list" && (
+              <Select value={groupBy} onValueChange={(v) => setGroupBy(v as "status" | "none")}>
+                <SelectTrigger className="w-44" aria-label="Group tasks">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="status">Group by status</SelectItem>
+                  <SelectItem value="none">No grouping</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             <div className="relative">
@@ -284,7 +473,7 @@ export function Tasks() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="all">Any status</SelectItem>
                 <SelectItem value={OVERDUE}>Overdue</SelectItem>
                 {TASK_STATUSES.map((s) => (
                   <SelectItem key={s} value={s}>
@@ -323,6 +512,8 @@ export function Tasks() {
               Clear filters
             </Button>
           </div>
+        ) : view === "list" && groupBy === "status" ? (
+          <TaskGroups rows={rows} />
         ) : view === "list" ? (
           <>
             <TaskTable rows={pageRows} />
@@ -431,7 +622,7 @@ function Assignees({ task }: { task: TaskItem }) {
   );
 }
 
-function TaskLink({ task, className }: { task: TaskItem; className?: string }) {
+function TaskLink({ task, className }: { task: TaskItem; className?: string | undefined }) {
   return (
     <Link
       to="/tasks/$taskSlug"
@@ -453,6 +644,186 @@ function ProjectLink({ task }: { task: TaskItem }) {
     >
       {task.projectName}
     </Link>
+  );
+}
+
+/* ---------- Edit in place ---------- */
+
+const STATUS_OPTIONS = TASK_STATUSES.map((v) => ({
+  value: v,
+  label: v,
+  render: <Status>{v}</Status>,
+}));
+const PRIORITY_OPTIONS = [...TASK_PRIORITIES]
+  .reverse()
+  .map((v) => ({ value: v, label: v, render: <Status>{v}</Status> }));
+
+/** One-click and double-click edits for a task's fields, each with Undo. */
+function useTaskEdit(task: TaskItem) {
+  const { patchTask, members, projects } = useMiniOps();
+  const can = task.canEdit;
+  function change<K extends keyof TaskWrite>(
+    message: string,
+    write: Pick<TaskWrite, K>,
+    before: Pick<TaskWrite, K>,
+    shown?: Partial<ApiTask>,
+    shownBefore?: Partial<ApiTask>,
+  ) {
+    saveWithUndo(
+      message,
+      () => patchTask(task.slug, write, shown),
+      () => patchTask(task.slug, before, shownBefore),
+    );
+  }
+  const memberName = (id: number | null) => members.find((m) => m.id === id)?.name ?? "";
+  return {
+    can,
+    rename: (title: string) => change("Task renamed", { title }, { title: task.title }),
+    status: (status: TaskStatus) =>
+      change(`Status: ${status}`, { status }, { status: task.status }),
+    priority: (priority: TaskPriority) =>
+      change(`Priority: ${priority}`, { priority }, { priority: task.priority }),
+    due: (due: string | null) =>
+      change(
+        due ? `Due ${formatDisplayDate(due)}` : "Due date removed",
+        { due_date: due },
+        { due_date: task.dueDate },
+        { is_overdue: false },
+        { is_overdue: task.isOverdue },
+      ),
+    assignee: (v: string) => {
+      const id = v === UNASSIGNED ? null : Number(v);
+      change(
+        id ? `Assigned to ${memberName(id)}` : "Unassigned",
+        { assignee: id },
+        { assignee: task.assignee },
+        { assignee_name: memberName(id) },
+        { assignee_name: task.assigneeName },
+      );
+    },
+    project: (v: string) => {
+      const slug = v === NO_PROJECT ? null : v;
+      const name = projects.find((p) => p.id === slug)?.name ?? "";
+      change(
+        slug ? `Moved to ${name}` : "Removed from project",
+        { project: slug },
+        { project: task.project },
+        { project_name: name },
+        { project_name: task.projectName },
+      );
+    },
+    people: [
+      { value: UNASSIGNED, label: "Unassigned" },
+      ...members.map((m) => ({ value: String(m.id), label: m.name, hint: m.role })),
+    ],
+    projectOptions: [
+      { value: NO_PROJECT, label: "No project" },
+      ...projects.map((p) => ({ value: p.id, label: p.name, hint: p.client })),
+    ],
+  };
+}
+
+/** Task name: click opens it, double-click renames it. */
+function TaskTitleEdit({
+  task,
+  className,
+  noOpen,
+}: {
+  task: TaskItem;
+  className?: string | undefined;
+  /** The board card has its own Open button. */
+  noOpen?: boolean;
+}) {
+  const edit = useTaskEdit(task);
+  return (
+    <InlineText
+      value={task.title}
+      onSave={edit.rename}
+      disabled={!edit.can}
+      label="Task name"
+      className="w-full"
+      open={noOpen ? null : <OpenLink to="/tasks/$taskSlug" params={{ taskSlug: task.slug }} />}
+    >
+      <span className={cn("font-medium", className)}>{task.title}</span>
+    </InlineText>
+  );
+}
+
+function TaskStatusEdit({ task }: { task: TaskItem }) {
+  const edit = useTaskEdit(task);
+  // A shared task's status follows its people's parts.
+  const shared = task.subtasks.length > 0;
+  return (
+    <InlinePick
+      label="Status"
+      value={task.status}
+      options={STATUS_OPTIONS}
+      onPick={edit.status}
+      disabled={!edit.can || shared}
+    >
+      <Status>{task.status}</Status>
+    </InlinePick>
+  );
+}
+
+function TaskPriorityEdit({ task }: { task: TaskItem }) {
+  const edit = useTaskEdit(task);
+  return (
+    <InlinePick
+      label="Priority"
+      value={task.priority}
+      options={PRIORITY_OPTIONS}
+      onPick={edit.priority}
+      disabled={!edit.can}
+    >
+      <Status>{task.priority}</Status>
+    </InlinePick>
+  );
+}
+
+function TaskDueEdit({ task, className }: { task: TaskItem; className?: string | undefined }) {
+  const edit = useTaskEdit(task);
+  return (
+    <InlineDate value={task.dueDate} onPick={edit.due} disabled={!edit.can}>
+      <DueDate task={task} className={className} />
+    </InlineDate>
+  );
+}
+
+function TaskAssigneeEdit({ task }: { task: TaskItem }) {
+  const edit = useTaskEdit(task);
+  useNeeds("members");
+  return (
+    <InlinePick
+      label="Assignee"
+      search
+      value={task.assignee === null ? UNASSIGNED : String(task.assignee)}
+      options={edit.people}
+      onPick={edit.assignee}
+      disabled={!edit.can || task.subtasks.length > 0}
+    >
+      <Assignees task={task} />
+    </InlinePick>
+  );
+}
+
+function TaskProjectEdit({ task }: { task: TaskItem }) {
+  const edit = useTaskEdit(task);
+  return (
+    <InlinePick
+      label="Project"
+      search
+      value={task.project ?? NO_PROJECT}
+      options={edit.projectOptions}
+      onPick={edit.project}
+      disabled={!edit.can || !!task.parent}
+    >
+      {task.project ? (
+        <span>{task.projectName}</span>
+      ) : (
+        <span className="text-muted-foreground">No project</span>
+      )}
+    </InlinePick>
   );
 }
 
@@ -493,7 +864,7 @@ export function TaskTable({
           <MobileCard key={task.slug}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <TaskLink task={task} />
+                <TaskTitleEdit task={task} />
                 {showProject && (
                   <div className="mt-0.5 truncate text-xs">
                     <ProjectLink task={task} />
@@ -505,16 +876,16 @@ export function TaskTable({
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3">
               <MobileField label="Assigned to">
-                <Assignees task={task} />
+                <TaskAssigneeEdit task={task} />
               </MobileField>
               <MobileField label="Due date">
-                <DueDate task={task} />
+                <TaskDueEdit task={task} />
               </MobileField>
               <MobileField label="Priority">
-                <Status>{task.priority}</Status>
+                <TaskPriorityEdit task={task} />
               </MobileField>
               <MobileField label="Status">
-                <Status>{task.status}</Status>
+                <TaskStatusEdit task={task} />
               </MobileField>
             </dl>
           </MobileCard>
@@ -526,7 +897,10 @@ export function TaskTable({
 
 function TaskDesktopTable({ rows, showProject }: { rows: TaskItem[]; showProject: boolean }) {
   const { taskList } = useMiniOps();
-  const [expanded, setExpanded] = useListState<Set<string>>("TaskDesktopTable.expanded", () => new Set());
+  const [expanded, setExpanded] = useListState<Set<string>>(
+    "TaskDesktopTable.expanded",
+    () => new Set(),
+  );
   const toggle = (slug: string) =>
     setExpanded((cur) => {
       const next = new Set(cur);
@@ -537,7 +911,10 @@ function TaskDesktopTable({ rows, showProject }: { rows: TaskItem[]; showProject
   const subtasksOf = (t: TaskItem) =>
     t.subtasks.flatMap((s) => taskList.find((x) => x.slug === s.slug) ?? []);
 
-  const [dueDateOrder, setDueDateOrder] = useListState<DueDateOrder>("TaskDesktopTable.dueDateOrder", "ascending");
+  const [dueDateOrder, setDueDateOrder] = useListState<DueDateOrder>(
+    "TaskDesktopTable.dueDateOrder",
+    "ascending",
+  );
   const sortedRows = sortByDueDate(rows, dueDateOrder);
 
   function toggleDueDateOrder() {
@@ -571,8 +948,8 @@ function TaskDesktopTable({ rows, showProject }: { rows: TaskItem[]; showProject
             ) : (
               <span className="size-5 shrink-0" />
             ))}
-          <div className="min-w-0">
-            <TaskLink task={t} />
+          <div className="min-w-0 flex-1">
+            <TaskTitleEdit task={t} />
             {t.subtasks.length > 0 && (
               <span className="ml-2 text-xs text-muted-foreground">
                 {t.subtasks.length} sub-task{t.subtasks.length === 1 ? "" : "s"}
@@ -584,20 +961,20 @@ function TaskDesktopTable({ rows, showProject }: { rows: TaskItem[]; showProject
       </TableCell>
       {showProject && (
         <TableCell>
-          <ProjectLink task={t} />
+          <TaskProjectEdit task={t} />
         </TableCell>
       )}
       <TableCell>
-        <Assignees task={t} />
+        <TaskAssigneeEdit task={t} />
       </TableCell>
       <TableCell>
-        <Status>{t.priority}</Status>
+        <TaskPriorityEdit task={t} />
       </TableCell>
       <TableCell className="whitespace-nowrap">
-        <DueDate task={t} />
+        <TaskDueEdit task={t} />
       </TableCell>
       <TableCell>
-        <Status>{t.status}</Status>
+        <TaskStatusEdit task={t} />
       </TableCell>
       <TableCell className="text-right">
         <TaskRowActions task={t} />
@@ -649,6 +1026,8 @@ function TaskDesktopTable({ rows, showProject }: { rows: TaskItem[]; showProject
 function TaskBoard({ rows, canEdit }: { rows: TaskItem[]; canEdit: boolean }) {
   const { moveTask } = useMiniOps();
   const [over, setOver] = useState<TaskStatus | null>(null);
+  // Long columns show the most urgent cards first, with the rest a click away.
+  const [shown, setShown] = useState<Record<string, number>>({});
 
   async function drop(e: DragEvent, status: TaskStatus) {
     e.preventDefault();
@@ -688,7 +1067,7 @@ function TaskBoard({ rows, canEdit }: { rows: TaskItem[]; canEdit: boolean }) {
               <span className="text-muted-foreground">{column.length}</span>
             </h2>
             <div className="space-y-2">
-              {column.map((t) => (
+              {column.slice(0, shown[status] ?? 20).map((t) => (
                 <div
                   key={t.slug}
                   draggable={canEdit && t.canEdit && !t.subtasks.length}
@@ -701,7 +1080,17 @@ function TaskBoard({ rows, canEdit }: { rows: TaskItem[]; canEdit: boolean }) {
                       "cursor-grab active:cursor-grabbing",
                   )}
                 >
-                  <TaskLink task={t} className="text-sm" />
+                  <div className="flex items-start gap-1">
+                    <div className="min-w-0 flex-1">
+                      <TaskTitleEdit task={t} className="text-sm" noOpen />
+                    </div>
+                    <OpenLink
+                      to="/tasks/$taskSlug"
+                      params={{ taskSlug: t.slug }}
+                      aria-label={`Open ${t.title}`}
+                      iconOnly
+                    />
+                  </div>
                   <TagList tags={t.tags} className="mt-1.5" />
                   <p className="mt-1 text-xs text-muted-foreground">
                     {t.projectName || "No project"}
@@ -710,11 +1099,21 @@ function TaskBoard({ rows, canEdit }: { rows: TaskItem[]; canEdit: boolean }) {
                       ` · ${t.subtasks.filter((s) => s.status === "Done").length}/${t.subtasks.length} sub-tasks done`}
                   </p>
                   <div className="mt-3 flex items-center justify-between text-xs">
-                    <Status>{t.priority}</Status>
-                    <DueDate task={t} />
+                    <TaskPriorityEdit task={t} />
+                    <TaskDueEdit task={t} />
                   </div>
                 </div>
               ))}
+              {column.length > (shown[status] ?? 20) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setShown((m) => ({ ...m, [status]: (m[status] ?? 20) + 30 }))}
+                >
+                  Show {Math.min(30, column.length - (shown[status] ?? 20))} more
+                </Button>
+              )}
               {column.length === 0 && (
                 <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
                   {canEdit ? "Drop a task here" : "No tasks"}
@@ -865,7 +1264,7 @@ function EmptyTasks({ canEdit }: { canEdit: boolean }) {
 }
 
 export function TaskDetail({ slug }: { slug: string }) {
-  const { taskList, tasksState, can, authStatus, saveTask } = useMiniOps();
+  const { taskList, tasksState, can, authStatus } = useMiniOps();
   const canEdit = can("tasks", "edit");
   const task = taskList.find((t) => t.slug === slug);
 
@@ -892,21 +1291,25 @@ export function TaskDetail({ slug }: { slug: string }) {
         </Button>
       </div>
     );
+  return <TaskDetailBody task={task} />;
+}
 
-  async function changeStatus(status: string) {
-    if (!task || status === task.status) return;
-    try {
-      await saveTask({ ...toInput(task), status: status as TaskStatus }, task.slug);
-      toast.success(`Marked as ${status}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't update the task.");
-    }
-  }
-
+function TaskDetailBody({ task }: { task: TaskItem }) {
+  const edit = useTaskEdit(task);
   return (
     <>
       <PageHeader
-        title={task.title}
+        title={
+          <InlineText
+            value={task.title}
+            onSave={edit.rename}
+            disabled={!task.canEdit}
+            label="Task name"
+            inputClassName="h-11 text-[24px] font-semibold"
+          >
+            {task.title}
+          </InlineText>
+        }
         description={
           task.parent
             ? `${task.assigneeName || "Someone"}'s part of “${task.parentTitle}”`
@@ -916,7 +1319,7 @@ export function TaskDetail({ slug }: { slug: string }) {
         }
         action={(task.canEdit || task.canDelete) && <TaskActions task={task} />}
       />
-      <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
+      <div className="grid items-start gap-6 lg:grid-cols-[2fr_1fr]">
         <Section title="Description">
           <RichText
             html={task.description}
@@ -927,28 +1330,13 @@ export function TaskDetail({ slug }: { slug: string }) {
         <Section title="Details">
           <dl className="divide-y text-sm">
             <Detail label="Status">
-              {task.canEdit && !task.subtasks.length ? (
-                <Select value={task.status} onValueChange={(v) => void changeStatus(v)}>
-                  <SelectTrigger className="h-8 w-36" aria-label="Change status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TASK_STATUSES.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Status>{task.status}</Status>
-              )}
+              <TaskStatusEdit task={task} />
             </Detail>
             <Detail label="Priority">
-              <Status>{task.priority}</Status>
+              <TaskPriorityEdit task={task} />
             </Detail>
             <Detail label="Due date">
-              <DueDate task={task} />
+              <TaskDueEdit task={task} />
             </Detail>
             {task.parent ? (
               <Detail label="Part of">
@@ -962,13 +1350,13 @@ export function TaskDetail({ slug }: { slug: string }) {
               </Detail>
             ) : null}
             <Detail label="Assigned to">
-              <Assignees task={task} />
+              <TaskAssigneeEdit task={task} />
             </Detail>
             <Detail label="Tags">
               {task.tags.length ? <TagList tags={task.tags} className="justify-end" /> : "None"}
             </Detail>
             <Detail label="Project">
-              <ProjectLink task={task} />
+              {task.parent ? <ProjectLink task={task} /> : <TaskProjectEdit task={task} />}
             </Detail>
             {task.completedAt && (
               <Detail label="Completed">
@@ -984,17 +1372,71 @@ export function TaskDetail({ slug }: { slug: string }) {
   );
 }
 
+/** A sub-task named like its parent is that person's part of it. */
+function partName(s: { title: string; assigneeName: string }, parentTitle: string) {
+  return s.title === parentTitle && s.assigneeName
+    ? `${s.assigneeName.split(" ")[0]}'s part`
+    : s.title;
+}
+
+function SubtaskTitleEdit({ task, parentTitle }: { task: TaskItem; parentTitle: string }) {
+  const edit = useTaskEdit(task);
+  return (
+    <InlineText
+      value={task.title}
+      onSave={edit.rename}
+      disabled={!edit.can}
+      label="Sub-task name"
+      open={<OpenLink to="/tasks/$taskSlug" params={{ taskSlug: task.slug }} />}
+    >
+      <span className="font-medium">{partName(task, parentTitle)}</span>
+    </InlineText>
+  );
+}
+
 /** A task's sub-tasks, each with its own assignee, status and deadline. */
 function Subtasks({ task }: { task: TaskItem }) {
-  const { rescheduleTask } = useMiniOps();
+  const { moveTask, saveTask, members, taskList } = useMiniOps();
   const done = task.subtasks.filter((s) => s.status === "Done").length;
+  const total = task.subtasks.length;
+  const [title, setTitle] = useState("");
+  const [person, setPerson] = useState("");
+  const [due, setDue] = useState("");
+  const [adding, setAdding] = useState(false);
+  const people = members.map((m) => ({ value: String(m.id), label: m.name, hint: m.role }));
 
-  async function reschedule(slug: string, date: string) {
+  async function toggle(slug: string, isDone: boolean) {
     try {
-      await rescheduleTask(slug, date);
-      toast.success("Deadline updated");
+      await moveTask(slug, isDone ? "To Do" : "Done");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't change the deadline.");
+      toast.error(e instanceof Error ? e.message : "Couldn't update the sub-task.");
+    }
+  }
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    // A sub-task with no title of its own is that person's part of the main task.
+    const name = title.trim() || (person ? task.title : "");
+    if (!name) return;
+    setAdding(true);
+    try {
+      await saveTask({
+        title: name,
+        description: "",
+        project: task.project ?? "",
+        assignee: person,
+        parent: task.slug,
+        tags: [],
+        priority: task.priority,
+        status: "To Do",
+        dueDate: due || task.dueDate || "",
+      });
+      setTitle("");
+      setPerson("");
+      setDue("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't add the sub-task.");
+    } finally {
+      setAdding(false);
     }
   }
 
@@ -1002,76 +1444,136 @@ function Subtasks({ task }: { task: TaskItem }) {
     <Section
       title="Sub-tasks"
       subtitle={
-        task.subtasks.length
-          ? `${done} of ${task.subtasks.length} done`
+        total
+          ? `${done} of ${total} done`
           : "Break this task down, or give each person their own part."
       }
       action={
         task.canEdit && (
           <TaskFormDialog parent={task.slug} project={task.project ?? ""}>
-            <Button variant="outline" size="sm">
-              <Plus /> Add sub-task
+            <Button variant="ghost" size="sm">
+              More options
             </Button>
           </TaskFormDialog>
         )
       }
       className="mt-8"
     >
-      {task.subtasks.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Sub-task</TableHead>
-              <TableHead>Assigned to</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Due date</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {task.subtasks.map((s) => (
-              <TableRow key={s.slug} className={s.isOverdue ? "bg-danger-soft/30" : undefined}>
-                <TableCell>
-                  <Link
-                    to="/tasks/$taskSlug"
-                    params={{ taskSlug: s.slug }}
-                    className="font-medium hover:text-primary"
-                  >
-                    {s.title}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  {s.assigneeName || <span className="text-muted-foreground">Unassigned</span>}
-                </TableCell>
-                <TableCell>
-                  <Status>{s.status}</Status>
-                </TableCell>
-                <TableCell className="w-52">
-                  {task.canEdit ? (
-                    <DateInput
-                      aria-label={`Due date for ${s.title}`}
-                      value={s.dueDate ?? ""}
-                      onChange={(v) => v !== (s.dueDate ?? "") && void reschedule(s.slug, v)}
-                    />
-                  ) : s.dueDate ? (
-                    formatDisplayDate(s.dueDate)
-                  ) : (
-                    "No due date"
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      {total > 0 && (
+        <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-secondary">
+          <div
+            className="h-full rounded-full bg-positive transition-[width]"
+            style={{ width: `${(done / total) * 100}%` }}
+          />
+        </div>
       )}
+      <div className="overflow-hidden rounded-2xl border bg-card">
+        {task.subtasks.map((s) => {
+          const isDone = s.status === "Done";
+          const full = taskList.find((x) => x.slug === s.slug);
+          return (
+            <div
+              key={s.slug}
+              className={cn(
+                "flex flex-wrap items-center gap-3 border-b px-4 py-3 last:border-0",
+                s.isOverdue && !isDone && "bg-danger-soft/30",
+              )}
+            >
+              <button
+                type="button"
+                disabled={!task.canEdit}
+                onClick={() => void toggle(s.slug, isDone)}
+                aria-label={isDone ? `Mark ${s.title} not done` : `Mark ${s.title} done`}
+                className={cn(
+                  "grid size-5 shrink-0 place-items-center rounded-full border-2 transition-colors",
+                  isDone
+                    ? "border-positive bg-positive text-white"
+                    : "border-input hover:border-positive",
+                )}
+              >
+                {isDone && <Check className="size-3" strokeWidth={3} />}
+              </button>
+              {full ? (
+                <>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1",
+                      isDone && "text-subtle-foreground line-through",
+                    )}
+                  >
+                    <SubtaskTitleEdit task={full} parentTitle={task.title} />
+                  </span>
+                  <span className="w-40 truncate text-sm text-muted-foreground">
+                    <TaskAssigneeEdit task={full} />
+                  </span>
+                  <span className="w-28">
+                    <TaskStatusEdit task={full} />
+                  </span>
+                  <span className="w-36 text-sm">
+                    <TaskDueEdit task={full} />
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {partName(s, task.title)}
+                  </span>
+                  <span className="w-40 truncate text-sm text-muted-foreground">
+                    {s.assigneeName || "Unassigned"}
+                  </span>
+                  <span className="w-28">
+                    <Status>{s.status}</Status>
+                  </span>
+                  <span className="w-36 text-sm text-muted-foreground">
+                    {s.dueDate ? formatDisplayDate(s.dueDate) : "No due date"}
+                  </span>
+                </>
+              )}
+            </div>
+          );
+        })}
+        {task.canEdit && (
+          <form
+            onSubmit={add}
+            className="flex flex-wrap items-center gap-3 bg-secondary/40 px-4 py-3"
+          >
+            <Plus className="size-5 shrink-0 text-subtle-foreground" />
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={person ? `${task.title} (their part)` : "Add a sub-task…"}
+              aria-label="New sub-task"
+              className="h-9 min-w-48 flex-1 border-transparent bg-transparent shadow-none focus-visible:bg-card"
+            />
+            <SearchableSelect
+              clearable
+              variant="filter"
+              placeholder="Assign"
+              searchPlaceholder="Search people…"
+              options={people}
+              value={person}
+              onChange={setPerson}
+              aria-label="Assign the new sub-task"
+              className="h-9"
+            />
+            <span className="w-44">
+              <DateInput aria-label="Due date for the new sub-task" value={due} onChange={setDue} />
+            </span>
+            <Button type="submit" size="sm" disabled={adding || (!title.trim() && !person)}>
+              {adding ? "Adding…" : "Add"}
+            </Button>
+          </form>
+        )}
+      </div>
     </Section>
   );
 }
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2.5">
+    <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-3 py-2">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="text-right font-medium">{children}</dd>
+      <dd className="min-w-0 font-medium">{children}</dd>
     </div>
   );
 }
@@ -1266,15 +1768,20 @@ export function TaskFormDialog({
   const [innerOpen, setInnerOpen] = useState(false);
   const controlled = openProp !== undefined;
   const open = controlled ? openProp : innerOpen;
+  // It can open from any page (e.g. the sidebar), so load what the form lists.
+  useNeeds(...(open ? (["projects", "members", "tasks"] as const) : []));
   const [form, setForm] = useState<TaskInput>(() =>
     toInput(task, { project: project ?? "", parent: parent ?? "" }),
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // New main tasks can go to several people: each gets their own sub-task to track.
+  const [assignees, setAssignees] = useState<string[]>([]);
   const set = <K extends keyof TaskInput>(key: K, value: TaskInput[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
   const people = members.map((m) => ({ value: String(m.id), label: m.name, hint: m.role }));
   const hasSubtasks = !!task?.subtasks.length;
+  const multiAssign = !task && !form.parent;
   // Sub-tasks go one level deep, under a task that isn't itself a sub-task.
   const parentOptions = taskList
     .filter((t) => !t.parent && t.slug !== task?.slug)
@@ -1288,6 +1795,7 @@ export function TaskFormDialog({
 
   function reset() {
     setForm(toInput(task, { project: project ?? "", parent: parent ?? "" }));
+    setAssignees([]);
     setError("");
   }
 
@@ -1311,11 +1819,26 @@ export function TaskFormDialog({
     }
     setSaving(true);
     try {
-      await saveTask(
-        { ...form, title: form.title.trim(), description: form.description.trim() },
-        task?.slug,
-      );
-      toast.success(task ? "Task updated" : "Task created");
+      const input = { ...form, title: form.title.trim(), description: form.description.trim() };
+      if (multiAssign && assignees.length > 1) {
+        // One shared task, plus each person's own part with its own status and deadline.
+        const main = await saveTask({ ...input, assignee: "" });
+        for (const person of assignees)
+          await saveTask({
+            ...input,
+            description: "",
+            assignee: person,
+            parent: main.slug,
+            status: "To Do",
+          });
+        toast.success(`Task created for ${assignees.length} people`);
+      } else {
+        await saveTask(
+          multiAssign ? { ...input, assignee: assignees[0] ?? "" } : input,
+          task?.slug,
+        );
+        toast.success(task ? "Task updated" : "Task created");
+      }
       onOpenChange(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't save the task.");
@@ -1332,21 +1855,21 @@ export function TaskFormDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {children && <DialogTrigger asChild>{children}</DialogTrigger>}
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <form onSubmit={submit} noValidate>
-          <DialogHeader>
-            <DialogTitle>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      {children && <SheetTrigger asChild>{children}</SheetTrigger>}
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
+        <form onSubmit={submit} noValidate className="flex min-h-0 flex-1 flex-col">
+          <SheetHeader className="border-b px-6 py-5 pr-12 text-left">
+            <SheetTitle className="font-sans text-lg font-semibold">
               {task ? "Edit task" : form.parent ? "Add sub-task" : "Add task"}
-            </DialogTitle>
-            <DialogDescription>
+            </SheetTitle>
+            <SheetDescription>
               {form.parent && parentTitle
                 ? `A sub-task of “${parentTitle}”.`
                 : "Saved to your workspace."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-x-4 gap-y-5 py-5 sm:grid-cols-2">
+            </SheetDescription>
+          </SheetHeader>
+          <div className="grid flex-1 content-start gap-x-4 gap-y-5 overflow-y-auto px-6 py-5 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Label htmlFor="task-title">
                 Task title<span className="ml-0.5 text-destructive">*</span>
@@ -1402,6 +1925,23 @@ export function TaskFormDialog({
                 <p id="task-assignee" className="pt-2 text-sm text-muted-foreground">
                   People are on its sub-tasks
                 </p>
+              ) : multiAssign ? (
+                <>
+                  <SearchableMultiSelect
+                    id="task-assignee"
+                    placeholder="Unassigned"
+                    searchPlaceholder="Search people…"
+                    options={people}
+                    value={assignees}
+                    onChange={setAssignees}
+                  />
+                  {assignees.length > 1 && (
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      Each person gets their own part to tick off. The task is done when everyone is
+                      done.
+                    </p>
+                  )}
+                </>
               ) : (
                 <SearchableSelect
                   id="task-assignee"
@@ -1471,7 +2011,7 @@ export function TaskFormDialog({
               true,
             )}
           </div>
-          <DialogFooter>
+          <SheetFooter className="gap-2 border-t bg-card px-6 py-4">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -1482,11 +2022,13 @@ export function TaskFormDialog({
                   ? "Save changes"
                   : form.parent
                     ? "Add sub-task"
-                    : "Create task"}
+                    : assignees.length > 1
+                      ? `Create for ${assignees.length} people`
+                      : "Create task"}
             </Button>
-          </DialogFooter>
+          </SheetFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

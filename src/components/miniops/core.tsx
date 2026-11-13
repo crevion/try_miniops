@@ -1,10 +1,9 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import type { PermissionModule } from "@/lib/api";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   MessageSquare,
   FolderKanban,
-  CalendarClock,
   Check,
   CheckSquare,
   ChevronDown,
@@ -20,10 +19,9 @@ import {
   TrendingUp,
   UsersRound,
   Users,
-  Activity,
-  Gauge,
-  CircleDollarSign,
-  BriefcaseBusiness,
+  Target,
+  Landmark,
+  Repeat,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -56,19 +54,41 @@ import {
 import { useMiniOps, useNeeds } from "@/features/store";
 import { NotificationCenter, ProfileMenu } from "./header";
 import { ViewSwitcher } from "./view-switcher";
+import { AskMiniOps } from "@/features/preview/ask";
+import { ThemeToggle } from "./theme";
+import { TaskFormDialog } from "@/features/tasks";
 import { cn } from "@/lib/utils";
 import { CURRENCIES, browserTimezone, timezoneOptions } from "@/lib/workspace-options";
 import { SearchableSelect } from "./select-search";
 
-const primaryNav = [
-  ["/app", "Overview", LayoutDashboard],
-  ["/projects", "Projects", FolderKanban],
-  ["/tasks", "Tasks", CheckSquare],
-  ["/clients", "Clients", UsersRound],
-  ["/team", "Team", Users],
-  ["/chat", "Chat", MessageSquare],
-  ["/time", "Time", Clock3],
-  ["/expenses", "Expenses", Receipt],
+// Sidebar groups follow redesign v2: core pages, then Money, then Work.
+const navGroups = [
+  [
+    null,
+    [
+      ["/app", "Home", LayoutDashboard],
+      ["/goals", "Goals", Target],
+      ["/projects", "Projects", FolderKanban],
+      ["/clients", "Clients", UsersRound],
+    ],
+  ],
+  [
+    "Money",
+    [
+      ["/expenses", "Expenses", Receipt],
+      ["/bank", "Bank & statements", Landmark],
+      ["/subscriptions", "Subscriptions & bills", Repeat],
+    ],
+  ],
+  [
+    "Work",
+    [
+      ["/tasks", "Tasks", CheckSquare],
+      ["/team", "Team", Users],
+      ["/time", "Time", Clock3],
+      ["/chat", "Chat", MessageSquare],
+    ],
+  ],
 ] as const;
 const adminNav = [["/settings", "Settings", Settings]] as const;
 
@@ -81,7 +101,14 @@ function Logo({ compact = false }: { compact?: boolean }) {
       {compact ? (
         <img src="/apple-touch-icon.png" alt="MiniOps" className="size-8 shrink-0 rounded-lg" />
       ) : (
-        <img src="/miniops-logo.png" alt="MiniOps" className="h-8 w-auto" />
+        <>
+          <img src="/miniops-logo.png" alt="MiniOps" className="h-8 w-auto dark:hidden" />
+          <img
+            src="/miniops-logo-dark.png"
+            alt="MiniOps"
+            className="hidden h-8 w-auto dark:block"
+          />
+        </>
       )}
     </Link>
   );
@@ -110,21 +137,23 @@ function WorkspacePicker({ compact = false }: { compact?: boolean }) {
           <Button
             variant="outline"
             className={cn(
-              "mb-4 h-auto w-full justify-start gap-3 border-transparent bg-gradient-to-br from-primary-soft to-accent px-2.5 py-2.5 text-left shadow-none hover:bg-accent",
+              "mb-2 h-auto w-full justify-start gap-2.5 border-transparent bg-transparent px-2 py-2 text-left shadow-none hover:bg-secondary",
               compact && "mx-auto size-11 justify-center p-0",
             )}
             title="Switch workspace"
           >
-            <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-xs font-semibold text-primary-foreground shadow-sm">
+            <span className="grid size-[30px] shrink-0 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
               {activeWorkspace.name.charAt(0)}
             </span>
             {!compact && (
               <>
                 <span className="min-w-0 flex-1">
-                  <b className="block truncate text-xs">{activeWorkspace.name}</b>
-                  <small className="block text-muted-foreground">{activeWorkspace.role}</small>
+                  <b className="block truncate text-sm font-semibold">{activeWorkspace.name}</b>
+                  <small className="block text-xs text-subtle-foreground">
+                    {activeWorkspace.role}
+                  </small>
                 </span>
-                <ChevronDown className="size-3 text-primary" />
+                <ChevronDown className="size-4 text-muted-foreground" />
               </>
             )}
           </Button>
@@ -253,65 +282,127 @@ const NAV_PERMISSION: Partial<Record<string, PermissionModule>> = {
 };
 function Nav({ close, compact = false }: { close?: () => void; compact?: boolean }) {
   const { live, can, chatUnread } = useMiniOps();
-  const visible = primaryNav.filter(([to]) => {
+  const [closedGroups, setClosedGroups] = useState<Set<string>>(() => new Set());
+  const allowed = (to: string) => {
     const module = NAV_PERMISSION[to];
     return !live || !module || can(module);
-  });
-  const links = [...visible, ...adminNav];
+  };
+  const toggleGroup = (label: string) =>
+    setClosedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  const renderLink = (to: string, label: string, Icon: typeof Settings) => {
+    const link = (
+      <Link
+        to={to}
+        onClick={close}
+        aria-label={label}
+        activeProps={{
+          className: "bg-sidebar-accent text-sidebar-accent-foreground font-semibold",
+        }}
+        inactiveProps={{
+          className: "text-sidebar-foreground hover:bg-secondary hover:text-foreground",
+        }}
+        className={cn(
+          "flex h-9 items-center gap-3 rounded-lg text-sm transition-colors duration-150",
+          compact ? "mx-auto w-10 justify-center" : "px-2.5",
+        )}
+      >
+        <Icon className="size-[17px] shrink-0" strokeWidth={1.8} />
+        {!compact && <span className="truncate">{label}</span>}
+        {to === "/chat" &&
+          chatUnread > 0 &&
+          (compact ? (
+            <span className="absolute ml-5 -mt-5 size-2.5 rounded-full bg-primary ring-2 ring-sidebar" />
+          ) : (
+            <span className="ml-auto grid min-w-5 place-items-center rounded-full bg-secondary px-1.5 text-[11px] font-semibold leading-5 text-muted-foreground">
+              {chatUnread > 99 ? "99+" : chatUnread}
+            </span>
+          ))}
+      </Link>
+    );
+    return (
+      <div key={to}>
+        {compact ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{link}</TooltipTrigger>
+            <TooltipContent side="right">{label}</TooltipContent>
+          </Tooltip>
+        ) : (
+          link
+        )}
+      </div>
+    );
+  };
   return (
     <TooltipProvider delayDuration={150}>
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden">
-        {links.map(([to, label, Icon], index) => {
-          const link = (
-            <Link
-              to={to}
-              onClick={close}
-              aria-label={label}
-              activeProps={{
-                className:
-                  "bg-primary-soft text-sidebar-accent-foreground font-semibold [&>svg]:text-primary",
-              }}
-              inactiveProps={{
-                className: "text-muted-foreground hover:bg-secondary hover:text-foreground",
-              }}
-              className={cn(
-                "flex h-10 items-center gap-3 rounded-[10px] text-sm transition-colors duration-200",
-                compact ? "mx-auto w-10 justify-center" : "px-3",
-              )}
-            >
-              <Icon className="size-5 shrink-0" strokeWidth={1.8} />
-              {!compact && <span className="truncate">{label}</span>}
-              {to === "/chat" &&
-                chatUnread > 0 &&
-                (compact ? (
-                  <span className="absolute ml-5 -mt-5 size-2.5 rounded-full bg-primary ring-2 ring-sidebar" />
-                ) : (
-                  <span className="ml-auto grid min-w-5 place-items-center rounded-full bg-primary px-1.5 text-[11px] font-semibold leading-5 text-primary-foreground">
-                    {chatUnread > 99 ? "99+" : chatUnread}
-                  </span>
-                ))}
-            </Link>
-          );
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden">
+        {navGroups.map(([label, items]) => {
+          const links = items.filter(([to]) => allowed(to));
+          if (!links.length) return null;
+          const closed = label !== null && !compact && closedGroups.has(label);
           return (
-            <div key={to}>
-              {index === visible.length && <span className="my-3 block h-px bg-border/70" />}
-              {compact ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>{link}</TooltipTrigger>
-                  <TooltipContent side="right">{label}</TooltipContent>
-                </Tooltip>
-              ) : (
-                link
-              )}
+            <div key={label ?? "main"} className="flex flex-col gap-0.5">
+              {label !== null &&
+                (compact ? (
+                  <span className="mx-auto my-2 block h-px w-8 bg-border" />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(label)}
+                    aria-expanded={!closed}
+                    className="flex w-full items-center gap-1.5 px-2.5 pb-1.5 pt-4 text-left text-xs font-semibold text-subtle-foreground hover:text-muted-foreground"
+                  >
+                    <ChevronDown
+                      className={cn("size-3.5 transition-transform", closed && "-rotate-90")}
+                    />
+                    {label}
+                  </button>
+                ))}
+              {!closed && links.map(([to, text, Icon]) => renderLink(to, text, Icon))}
             </div>
           );
         })}
+        <span className={cn("my-3 block h-px bg-border", compact && "mx-auto w-8")} />
+        {adminNav.map(([to, text, Icon]) => renderLink(to, text, Icon))}
       </nav>
     </TooltipProvider>
   );
 }
 
+/** Create a task from anywhere in the app. */
+function NewTaskButton({ compact = false, onDone }: { compact?: boolean; onDone?: () => void }) {
+  const { live, can } = useMiniOps();
+  const [open, setOpen] = useState(false);
+  if (live && !can("tasks", "edit")) return null;
+  return (
+    <>
+      <Button
+        onClick={() => setOpen(true)}
+        title={compact ? "New task" : undefined}
+        aria-label="New task"
+        className={cn("mb-3 h-[38px]", compact ? "mx-auto w-10 px-0" : "w-full justify-start px-3")}
+      >
+        <Plus />
+        {!compact && "New task"}
+      </Button>
+      <TaskFormDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) onDone?.();
+        }}
+      />
+    </>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
+  // A soft fade when the page changes; filters and tabs on the same page don't re-run it.
+  const pathname = useRouterState({ select: (s) => s.location.pathname.split("/")[1] ?? "" });
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState(false);
   useEffect(() => {
@@ -328,16 +419,18 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-background">
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden overflow-hidden bg-sidebar py-3 shadow-[1px_0_0_var(--border)] transition-[width] duration-200 ease-out lg:flex lg:flex-col",
-          collapsed ? "w-[72px] px-2" : "w-60 px-3",
+          "fixed inset-y-0 left-0 z-30 hidden overflow-hidden border-r bg-sidebar py-3 transition-[width] duration-200 ease-out lg:flex lg:flex-col",
+          collapsed ? "w-[72px] px-2" : "w-[252px] px-3",
         )}
       >
         <div className={cn("mb-3 h-11", !collapsed && "px-2")}>
           <Logo compact={collapsed} />
         </div>
         <WorkspacePicker compact={collapsed} />
+        <NewTaskButton compact={collapsed} />
         <Nav compact={collapsed} />
         <div className="pt-3">
+          <AskMiniOps compact={collapsed} />
           <Button
             variant="ghost"
             size="icon"
@@ -354,10 +447,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div
         className={cn(
           "min-w-0 transition-[padding] duration-200 ease-out",
-          collapsed ? "lg:pl-[72px]" : "lg:pl-60",
+          collapsed ? "lg:pl-[72px]" : "lg:pl-[252px]",
         )}
       >
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between bg-card/85 shadow-[0_1px_0_var(--border)] px-4 backdrop-blur-xl md:px-6">
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b bg-card/90 px-4 backdrop-blur-xl md:px-6">
           <div className="lg:hidden">
             <Sheet>
               <SheetTrigger asChild>
@@ -370,14 +463,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Logo />
                 </SheetTitle>
                 <WorkspacePicker />
+                <NewTaskButton />
                 <Nav />
+                <div className="pt-3">
+                  <AskMiniOps />
+                </div>
               </SheetContent>
             </Sheet>
           </div>
           <Button
             onClick={() => setSearch(true)}
             variant="outline"
-            className="hidden h-10 w-72 justify-start gap-2 border-transparent bg-secondary text-muted-foreground shadow-none hover:border-primary/10 hover:bg-accent md:flex"
+            className="hidden h-9 w-72 justify-start gap-2 border-transparent bg-secondary text-subtle-foreground font-normal shadow-none hover:bg-muted md:flex"
           >
             <Search className="size-4" />
             Search MiniOps <kbd className="ml-auto">⌘K</kbd>
@@ -392,12 +489,18 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <Search className="size-4" />
             </Button>
+            <ThemeToggle />
             <ViewSwitcher currentView="employer" />
             <NotificationCenter />
             <ProfileMenu />
           </div>
         </header>
-        <main className="mx-auto max-w-[1500px] p-4 md:p-6 lg:p-8">{children}</main>
+        <main
+          key={pathname}
+          className="mx-auto max-w-[1500px] p-4 duration-300 animate-in fade-in-0 slide-in-from-bottom-1 md:p-6 lg:p-8"
+        >
+          {children}
+        </main>
       </div>
       <CommandSearch open={search} setOpen={setSearch} />
     </div>
@@ -427,7 +530,7 @@ function CommandSearch({ open, setOpen }: { open: boolean; setOpen: (v: boolean)
     .slice(0, 8);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="top-[20%] translate-y-0 p-0">
+      <DialogContent placement="center" className="top-[20%] translate-y-0 p-0">
         <DialogHeader className="sr-only">
           <DialogTitle>Search MiniOps</DialogTitle>
           <DialogDescription>Search the current workspace.</DialogDescription>
@@ -472,16 +575,18 @@ export function PageHeader({
   description,
   action,
 }: {
-  title: string;
+  title: ReactNode;
   description?: string;
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-8 grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+    <div className="mb-6 grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
       <div className="min-w-0">
-        <h1 className="font-display text-3xl font-bold md:text-4xl">{title}</h1>
+        <h1 className="font-display text-[26px] font-semibold leading-tight md:text-[30px]">
+          {title}
+        </h1>
         {description && (
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground md:text-base">{description}</p>
+          <p className="mt-1.5 max-w-2xl text-[15px] text-muted-foreground">{description}</p>
         )}
       </div>
       <div className="shrink-0">{action}</div>
@@ -524,17 +629,6 @@ const toneOf = (label: string): Tone => {
   if (/hour|time|member|team/.test(l)) return "primary";
   return "violet";
 };
-const iconOf = (label: string, tone: Tone) => {
-  const l = label.toLowerCase();
-  if (/member|team/.test(l)) return Users;
-  if (/hour|time|billable/.test(l)) return Clock3;
-  if (/utiliz|capacity|used/.test(l)) return Gauge;
-  if (/renew|next/.test(l)) return CalendarClock;
-  if (/project/.test(l)) return BriefcaseBusiness;
-  if (tone === "cost") return Receipt;
-  if (tone === "profit") return CircleDollarSign;
-  return Activity;
-};
 /** Reusable MiniOps summary card — mirrors the Overview KPI style. */
 export function SummaryCard({
   label,
@@ -554,15 +648,6 @@ export function SummaryCard({
   icon?: ReactNode;
 }) {
   const t = tone ?? toneOf(label);
-  const Icon = iconOf(label, t);
-  const toneClass =
-    t === "profit"
-      ? "bg-positive-soft text-positive"
-      : t === "cost"
-        ? "bg-warning-soft text-warning"
-        : t === "primary"
-          ? "bg-info-soft text-info"
-          : "bg-primary-soft text-primary";
   const line =
     t === "profit"
       ? "text-positive"
@@ -571,26 +656,11 @@ export function SummaryCard({
         : t === "primary"
           ? "text-info"
           : "text-primary";
-  const surface =
-    t === "profit"
-      ? "from-positive-soft/60"
-      : t === "cost"
-        ? "from-warning-soft/50"
-        : t === "primary"
-          ? "from-info-soft/60"
-          : "from-primary-soft/80";
   return (
-    <div
-      className={cn(
-        "summary-card group flex min-w-0 flex-col rounded-2xl bg-card bg-gradient-to-br to-card to-65% p-5 shadow-card transition-[transform,box-shadow] duration-200 hover:-translate-y-px hover:shadow-card-hover md:p-6",
-        surface,
-      )}
-    >
-      <div className="flex items-center gap-3">
-        <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", toneClass)}>
-          {icon ?? <Icon className="size-[18px]" />}
-        </span>
-        <p className="min-w-0 flex-1 text-[13px] font-medium leading-snug text-muted-foreground max-sm:line-clamp-2 sm:truncate">
+    <div className="summary-card flex min-w-0 flex-col gap-1.5 rounded-2xl border bg-card px-5 py-4 md:px-6 md:py-5">
+      <div className="flex items-center gap-2.5">
+        {icon && <span className="text-subtle-foreground">{icon}</span>}
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground max-sm:line-clamp-2 sm:truncate">
           {label}
         </p>
         {spark && (
@@ -599,18 +669,18 @@ export function SummaryCard({
           </span>
         )}
       </div>
-      <strong className="mt-5 block truncate font-mono text-[1.625rem] font-semibold leading-none tracking-tight tabular-nums md:text-[1.875rem]">
+      <strong className="block truncate font-display text-[26px] font-semibold leading-tight tabular-nums md:text-[28px]">
         {value}
       </strong>
       {(trend || hint) && (
-        <div className="mt-2 flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-[13px]">
           {trend && (
-            <span className="inline-flex items-center rounded-full bg-positive-soft px-1.5 py-0.5 font-semibold text-positive">
+            <span className="inline-flex items-center font-medium text-positive">
               <TrendingUp className="mr-1 size-3" />
               {trend}
             </span>
           )}
-          {hint && <span className="text-muted-foreground">{hint}</span>}
+          {hint && <span className="text-subtle-foreground">{hint}</span>}
         </div>
       )}
     </div>
@@ -621,28 +691,20 @@ export function Status({ children }: { children: ReactNode }) {
   const t = String(children);
   const c = ["Healthy", "Active", "Done", "Approved", "Responded"].includes(t)
     ? "bg-positive-soft text-positive"
-    : [
-          "Attention",
-          "In Progress",
-          "In Review",
-          "Feedback",
-          "Pending",
-          "Invited",
-          "Waiting",
-          "New",
-        ].includes(t)
+    : ["Attention", "In Review", "Feedback", "Pending", "Invited", "Waiting", "New"].includes(t)
       ? "bg-warning-soft text-warning"
-      : ["At Risk", "Urgent", "Suspended", "Overdue"].includes(t)
-        ? "bg-danger-soft text-destructive"
-        : "bg-muted text-muted-foreground";
+      : ["In Progress", "Sent"].includes(t)
+        ? "bg-info-soft text-info"
+        : ["At Risk", "Loss", "Urgent", "Suspended", "Overdue", "Rejected"].includes(t)
+          ? "bg-danger-soft text-destructive"
+          : "bg-muted text-muted-foreground";
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium",
+        "inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[12.5px] font-medium",
         c,
       )}
     >
-      <span className="size-1.5 rounded-full bg-current" />
       {children}
     </span>
   );
@@ -650,7 +712,7 @@ export function Status({ children }: { children: ReactNode }) {
 
 /** One card in the phone list that replaces a table on small screens. */
 export function MobileCard({ children }: { children: ReactNode }) {
-  return <div className="rounded-2xl bg-card p-4 shadow-card">{children}</div>;
+  return <div className="rounded-2xl border bg-card p-4">{children}</div>;
 }
 
 /** A small label with its value, shown inside a MobileCard. */

@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { ThemeToggle } from "@/components/miniops/theme";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Activity as ActivityIcon,
@@ -98,7 +99,18 @@ export function MiniOpsMark({
       {compact ? (
         <img src="/apple-touch-icon.png" alt="MiniOps" className="size-8 shrink-0 rounded-[10px]" />
       ) : (
-        <img src="/miniops-logo.png" alt="MiniOps" className={cn("h-8 w-auto", labelClass)} />
+        <>
+          <img
+            src="/miniops-logo.png"
+            alt="MiniOps"
+            className={cn("h-8 w-auto dark:hidden", labelClass)}
+          />
+          <img
+            src="/miniops-logo-dark.png"
+            alt="MiniOps"
+            className={cn("hidden h-8 w-auto dark:block", labelClass)}
+          />
+        </>
       )}
     </div>
   );
@@ -323,6 +335,7 @@ export function EmployeeShell({ children }: { children: ReactNode }) {
                 >
                   <Search />
                 </Button>
+                <ThemeToggle />
                 <ViewSwitcher currentView="employee" />
                 <NotificationMenu />
                 <ProfileMenu />
@@ -898,7 +911,7 @@ function GlobalSearch({
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-[15%] translate-y-0 gap-0 p-0">
+      <DialogContent placement="center" className="top-[15%] translate-y-0 gap-0 p-0">
         <DialogHeader className="sr-only">
           <DialogTitle>Search MiniOps</DialogTitle>
           <DialogDescription>Search your projects, tasks, and time entries.</DialogDescription>
@@ -1124,7 +1137,7 @@ const keepOnFieldEscape = (e: KeyboardEvent) => {
   const t = e.target as HTMLElement | null;
   if (t?.getAttribute?.("aria-invalid") === "true") e.preventDefault();
 };
-const formDialog = "max-h-[92dvh] w-[calc(100vw-1rem)] overflow-y-auto p-4 sm:p-6";
+const formDialog = "overflow-y-auto p-4 sm:max-w-xl sm:p-6";
 const formFooter =
   "sticky -bottom-4 sm:-bottom-6 -mx-4 sm:-mx-6 border-t bg-card px-4 py-3 sm:px-6 gap-2 [&>button]:h-11 sm:[&>button]:h-10";
 const NO_PROJECT = "__none__";

@@ -1,4 +1,5 @@
 import { useListState } from "@/hooks/use-list-state";
+import { cn } from "@/lib/utils";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -63,6 +64,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Metric, MobileCard, MobileField, PageHeader, Status } from "@/components/miniops/core";
+import {
+  InlineDate,
+  InlinePick,
+  InlineText,
+  OpenLink,
+  saveWithUndo,
+} from "@/components/miniops/inline-edit";
 import { Section } from "@/components/miniops/forms";
 import { LinkedText } from "@/components/miniops/linked-text";
 import { ProjectFiles } from "./project-files";
@@ -75,7 +83,13 @@ import {
   type IsoRange,
 } from "@/components/miniops/date-time";
 import { cash, money, type Project } from "@/data/mock";
-import { membersApi, PROJECT_STATUSES, PROJECT_TYPES } from "@/lib/api";
+import {
+  membersApi,
+  PROJECT_STATUSES,
+  PROJECT_TYPES,
+  type ProjectStatus,
+  type ProjectWrite,
+} from "@/lib/api";
 import { LoginDialog } from "./login-dialog";
 import { TaskFormDialog, TaskTable } from "./tasks";
 import { TaskExportDialog } from "./task-reports";
@@ -135,7 +149,7 @@ export function Projects() {
   const [client, setClient] = useListState("Projects.client", "");
   const [range, setRange] = useListState<IsoRange>("Projects.range", { from: "", to: "" });
   const [sort, setSort] = useListState<SortKey>("Projects.sort", "recent");
-  const [view, setView] = useListState<"grid" | "list">("Projects.view", "grid");
+  const [view, setView] = useListState<"grid" | "list">("Projects.view", "list");
 
   const clientOptions = useMemo(
     () => [...new Set(projects.map((p) => p.client).filter(Boolean))].sort(),
@@ -390,7 +404,7 @@ function ProjectCard({ project, showMoney }: { project: Project; showMoney: bool
       {showMoney && (
         <div className="mt-4 flex items-center justify-between text-xs">
           <span className="text-muted-foreground">Health</span>
-          <Status>{project.health}</Status>
+          <HealthChip health={project.health} />
         </div>
       )}
     </Link>
@@ -409,18 +423,12 @@ function ProjectsTable({ rows, showMoney }: { rows: Project[]; showMoney: boolea
           <MobileCard key={project.id}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <Link
-                  to="/projects/$projectSlug"
-                  params={{ projectSlug: project.id }}
-                  className="block truncate font-medium hover:text-primary"
-                >
-                  {project.name}
-                </Link>
+                <ProjectNameEdit project={project} className="font-medium" />
                 <p className="truncate text-xs text-muted-foreground">
                   {project.client || "No client"}
                 </p>
               </div>
-              <Status>{project.status}</Status>
+              <ProjectStatusEdit project={project} />
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3">
               <MobileField label="Manager">
@@ -435,21 +443,177 @@ function ProjectsTable({ rows, showMoney }: { rows: Project[]; showMoney: boolea
                 </>
               )}
               <MobileField label="Due">
-                {project.endDate ? formatDisplayDate(project.endDate) : "Not set"}
+                <ProjectDueEdit project={project} />
               </MobileField>
               {showMoney && (
                 <MobileField label="Health">
-                  <Status>{project.health}</Status>
+                  <HealthChip health={project.health} />
                 </MobileField>
               )}
             </dl>
             <div className="mt-4">
-              <ProgressBar value={project.progress} />
+              <ProjectProgressEdit project={project}>
+                <ProgressBar value={project.progress} />
+              </ProjectProgressEdit>
             </div>
           </MobileCard>
         ))}
       </div>
     </>
+  );
+}
+
+// Redesign v2 labels for project health.
+const HEALTH_LABEL: Record<string, string> = {
+  Healthy: "On track",
+  Attention: "At risk",
+  "At Risk": "At risk",
+  Loss: "Losing money",
+};
+const CLIENT_HEALTH_LABEL: Record<string, string> = {
+  Healthy: "Healthy",
+  Attention: "Needs attention",
+  "At Risk": "Needs attention",
+  Loss: "Losing money",
+};
+export function HealthChip({ health, client = false }: { health: string; client?: boolean }) {
+  const tone =
+    health === "Healthy"
+      ? "bg-positive-soft text-positive"
+      : health === "Loss"
+        ? "bg-danger-soft text-destructive"
+        : health === "No data"
+          ? "bg-secondary text-muted-foreground"
+          : "bg-warning-soft text-warning";
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[12.5px] font-medium",
+        tone,
+      )}
+    >
+      {(client ? CLIENT_HEALTH_LABEL : HEALTH_LABEL)[health] ?? health}
+    </span>
+  );
+}
+
+function Meter({ value, tone }: { value: number; tone: "primary" | "warn" | "bad" | "ok" }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-secondary">
+        <div
+          className={cn(
+            "h-full rounded-full",
+            tone === "primary" && "bg-primary",
+            tone === "warn" && "bg-warning",
+            tone === "bad" && "bg-destructive",
+            tone === "ok" && "bg-positive",
+          )}
+          style={{ width: `${Math.min(value, 100)}%` }}
+        />
+      </div>
+      <span className="w-10 text-[13px] tabular-nums text-muted-foreground">{value}%</span>
+    </div>
+  );
+}
+
+/* ---------- Edit in place ---------- */
+
+const PROGRESS_STEPS = [0, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100];
+
+/** One-click and double-click edits for a project's name, status, progress and due date. */
+function useProjectEdit(p: Project) {
+  const { patchProject, can } = useMiniOps();
+  const change = (message: string, write: ProjectWrite, before: ProjectWrite) =>
+    saveWithUndo(
+      message,
+      () => patchProject(p.id, write),
+      () => patchProject(p.id, before),
+    );
+  return {
+    can: can("projects", "edit"),
+    rename: (name: string) => change("Project renamed", { name }, { name: p.name }),
+    status: (status: string) =>
+      change(
+        `Status: ${status}`,
+        { status: status as ProjectStatus },
+        { status: p.status as ProjectStatus },
+      ),
+    progress: (v: string) =>
+      change(`Work done: ${v}%`, { progress: Number(v) }, { progress: p.progress }),
+    due: (d: string | null) =>
+      change(
+        d ? `Due ${formatDisplayDate(d)}` : "Due date removed",
+        { end_date: d },
+        { end_date: p.endDate ?? null },
+      ),
+  };
+}
+
+export function ProjectNameEdit({ project, className }: { project: Project; className?: string }) {
+  const edit = useProjectEdit(project);
+  return (
+    <InlineText
+      value={project.name}
+      onSave={edit.rename}
+      disabled={!edit.can}
+      label="Project name"
+      open={<OpenLink to="/projects/$projectSlug" params={{ projectSlug: project.id }} />}
+    >
+      <span className={cn("font-semibold", className)}>{project.name}</span>
+    </InlineText>
+  );
+}
+
+export function ProjectStatusEdit({ project }: { project: Project }) {
+  const edit = useProjectEdit(project);
+  return (
+    <InlinePick
+      label="Status"
+      value={project.status}
+      options={PROJECT_STATUSES.map((v) => ({ value: v, label: v, render: <Status>{v}</Status> }))}
+      onPick={edit.status}
+      disabled={!edit.can}
+    >
+      <Status>{project.status}</Status>
+    </InlinePick>
+  );
+}
+
+function ProjectProgressEdit({ project, children }: { project: Project; children: ReactNode }) {
+  const edit = useProjectEdit(project);
+  const steps = PROGRESS_STEPS.includes(project.progress)
+    ? PROGRESS_STEPS
+    : [...PROGRESS_STEPS, project.progress].sort((a, b) => a - b);
+  return (
+    <InlinePick
+      label="Work done"
+      value={String(project.progress)}
+      options={steps.map((v) => ({ value: String(v), label: `${v}%` }))}
+      onPick={edit.progress}
+      disabled={!edit.can}
+      className="w-full"
+    >
+      {children}
+    </InlinePick>
+  );
+}
+
+function ProjectDueEdit({ project }: { project: Project }) {
+  const edit = useProjectEdit(project);
+  return (
+    <InlineDate
+      label="Due date"
+      value={project.endDate ?? null}
+      onPick={edit.due}
+      disabled={!edit.can}
+    >
+      {project.endDate ? (
+        `due ${formatDisplayDate(project.endDate)}`
+      ) : (
+        <span className="text-subtle-foreground">no due date</span>
+      )}
+    </InlineDate>
   );
 }
 
@@ -459,74 +623,68 @@ function ProjectsDesktopTable({ rows, showMoney }: { rows: Project[]; showMoney:
       <TableHeader>
         <TableRow>
           <TableHead>Project</TableHead>
-          <TableHead>Client</TableHead>
-          <TableHead>Manager</TableHead>
-          <TableHead>Status</TableHead>
-          {showMoney && (
+          {showMoney ? <TableHead>Health</TableHead> : <TableHead>Status</TableHead>}
+          {showMoney && <TableHead>Budget used</TableHead>}
+          <TableHead>Work done</TableHead>
+          {showMoney ? (
             <>
-              <TableHead className="text-right">Revenue</TableHead>
-              <TableHead className="text-right">Budget</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
+              <TableHead className="text-right">Fee</TableHead>
+              <TableHead className="text-right">Cost so far</TableHead>
               <TableHead className="text-right">Profit</TableHead>
               <TableHead className="text-right">Margin</TableHead>
             </>
+          ) : (
+            <TableHead>Manager</TableHead>
           )}
-          <TableHead>Progress</TableHead>
-          {showMoney && <TableHead>Health</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((p) => (
           <TableRow key={p.id}>
             <TableCell>
-              <Link
-                to="/projects/$projectSlug"
-                params={{ projectSlug: p.id }}
-                className="font-medium hover:text-primary"
-              >
-                {p.name}
-              </Link>
-              {p.endDate && (
-                <small className="block text-xs text-muted-foreground">
-                  Due {formatDisplayDate(p.endDate)}
-                </small>
-              )}
+              <ProjectNameEdit project={p} />
+              <small className="flex items-center gap-1.5 text-[13px] text-subtle-foreground">
+                {p.client || "No client"} ·
+                <ProjectDueEdit project={p} />
+              </small>
             </TableCell>
             <TableCell>
-              {p.clientSlug ? (
-                <Link
-                  to="/clients/$clientSlug"
-                  params={{ clientSlug: p.clientSlug }}
-                  className="hover:text-primary"
-                >
-                  {p.client}
-                </Link>
+              {showMoney ? (
+                <div className="flex flex-col items-start gap-1">
+                  <HealthChip health={p.health} />
+                  <ProjectStatusEdit project={p} />
+                </div>
               ) : (
-                <span className="text-muted-foreground">—</span>
+                <ProjectStatusEdit project={p} />
               )}
-            </TableCell>
-            <TableCell>
-              {p.managerNames?.join(", ") || <span className="text-muted-foreground">—</span>}
-            </TableCell>
-            <TableCell>
-              <Status>{p.status}</Status>
-            </TableCell>
-            {showMoney && (
-              <>
-                {[p.revenue, p.budget, p.cost, p.profit].map((v, i) => (
-                  <TableCell key={i} className="num">
-                    {money(v)}
-                  </TableCell>
-                ))}
-                <TableCell className="num">{p.margin}%</TableCell>
-              </>
-            )}
-            <TableCell>
-              <ProgressBar value={p.progress} />
             </TableCell>
             {showMoney && (
               <TableCell>
-                <Status>{p.health}</Status>
+                <Meter
+                  value={p.budgetUsed}
+                  tone={p.budgetUsed > 100 ? "bad" : p.budgetUsed >= 80 ? "warn" : "primary"}
+                />
+              </TableCell>
+            )}
+            <TableCell>
+              <ProjectProgressEdit project={p}>
+                <Meter value={p.progress} tone="ok" />
+              </ProjectProgressEdit>
+            </TableCell>
+            {showMoney ? (
+              <>
+                <TableCell className="num">{money(p.revenue)}</TableCell>
+                <TableCell className="num text-muted-foreground">{money(p.cost)}</TableCell>
+                <TableCell className={cn("num font-semibold", p.profit < 0 && "text-destructive")}>
+                  {money(p.profit)}
+                </TableCell>
+                <TableCell className={cn("num font-semibold", p.margin < 0 && "text-destructive")}>
+                  {Math.round(p.margin)}%
+                </TableCell>
+              </>
+            ) : (
+              <TableCell>
+                {p.managerNames?.join(", ") || <span className="text-muted-foreground">—</span>}
               </TableCell>
             )}
           </TableRow>
@@ -538,11 +696,14 @@ function ProjectsDesktopTable({ rows, showMoney }: { rows: Project[]; showMoney:
 
 export function ProgressBar({ value }: { value: number }) {
   return (
-    <div className="w-24">
-      <div className="h-1.5 bg-muted">
-        <div className="h-full bg-primary" style={{ width: `${Math.min(value, 100)}%` }} />
+    <div className="flex w-32 items-center gap-2">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
+        <div
+          className="h-full rounded-full bg-primary"
+          style={{ width: `${Math.min(value, 100)}%` }}
+        />
       </div>
-      <small>{value}%</small>
+      <small className="w-9 text-right text-xs tabular-nums text-muted-foreground">{value}%</small>
     </div>
   );
 }
@@ -607,8 +768,16 @@ function EmptyState({ canEdit }: { canEdit: boolean }) {
 }
 
 export function ProjectDetail({ slug }: { slug: string }) {
-  const { projects, projectsState, can, authStatus, taskList, expenseList, timeList } =
-    useMiniOps();
+  const {
+    projects,
+    projectsState,
+    can,
+    authStatus,
+    taskList,
+    expenseList,
+    timeList,
+    patchProject,
+  } = useMiniOps();
   const canEdit = can("projects", "edit");
   const canEditTasks = can("tasks", "edit");
   const canSeeExpenses = can("expenses");
@@ -663,11 +832,32 @@ export function ProjectDetail({ slug }: { slug: string }) {
   return (
     <>
       <PageHeader
-        title={p.name}
+        title={
+          <InlineText
+            value={p.name}
+            onSave={(name) =>
+              saveWithUndo(
+                "Project renamed",
+                () => patchProject(p.id, { name }),
+                () => patchProject(p.id, { name: p.name }),
+              )
+            }
+            disabled={!canEdit}
+            label="Project name"
+            inputClassName="h-11 text-[24px] font-semibold"
+          >
+            {p.name}
+          </InlineText>
+        }
         description={`${p.client || "No client"} · ${dateSpan(p)}`}
         action={canEdit && <ProjectActions project={p} />}
       />
-      <div className="mb-6 metric-grid">
+      <div
+        className={cn(
+          "mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4",
+          showMoney ? "xl:grid-cols-6" : "xl:grid-cols-4",
+        )}
+      >
         {showMoney ? (
           <>
             <Metric label="Revenue" value={money(p.revenue)} />
@@ -687,7 +877,7 @@ export function ProjectDetail({ slug }: { slug: string }) {
         )}
       </div>
       <Tabs defaultValue="overview">
-        <TabsList className="mb-6 flex w-full overflow-x-auto [&>*]:flex-1">
+        <TabsList className="mb-6 flex w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({projectTasks.length})</TabsTrigger>
           {canSeeTime && <TabsTrigger value="time">Time ({fmtHours(projectHours)})</TabsTrigger>}
@@ -705,13 +895,13 @@ export function ProjectDetail({ slug }: { slug: string }) {
                 <span>
                   Status
                   <br />
-                  <Status>{p.status}</Status>
+                  <ProjectStatusEdit project={p} />
                 </span>
                 {showMoney && (
                   <span>
                     Health
                     <br />
-                    <Status>{p.health}</Status>
+                    <HealthChip health={p.health} />
                   </span>
                 )}
                 <span>
