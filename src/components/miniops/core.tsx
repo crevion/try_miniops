@@ -394,9 +394,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Logo compact={collapsed} />
         </div>
         <WorkspacePicker compact={collapsed} />
-        <AskMiniOps compact={collapsed} />
         <Nav compact={collapsed} />
         <div className="pt-3">
+          <AskMiniOps compact={collapsed} />
           <Button
             variant="ghost"
             size="icon"
@@ -429,8 +429,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Logo />
                 </SheetTitle>
                 <WorkspacePicker />
-                <AskMiniOps />
                 <Nav />
+                <div className="pt-3">
+                  <AskMiniOps />
+                </div>
               </SheetContent>
             </Sheet>
           </div>

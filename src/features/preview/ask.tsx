@@ -34,7 +34,7 @@ export function AskMiniOps({ compact = false }: { compact?: boolean }) {
         aria-label="Ask MiniOps"
         title={compact ? "Ask MiniOps" : undefined}
         className={cn(
-          "mb-2 flex h-[38px] items-center gap-2.5 rounded-[10px] bg-primary-soft text-sm font-semibold text-accent-foreground transition-colors hover:bg-primary-light/60",
+          "mb-1 flex h-[38px] items-center gap-2.5 rounded-[10px] bg-primary-soft text-sm font-semibold text-accent-foreground transition-colors hover:bg-primary-light/60",
           compact ? "mx-auto w-10 justify-center" : "w-full px-3",
         )}
       >
