@@ -419,10 +419,10 @@ export function Dashboard() {
   } else {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const overdue = tasks.filter(
-      (t) =>
-        t[5] !== "Done" && new Date(`${t[4]} ${today.getFullYear()}`).getTime() < today.getTime(),
-    );
+    const dueTime = (d: string) => new Date(`${d} ${today.getFullYear()}`).getTime();
+    const overdue = tasks
+      .filter((t) => t[5] !== "Done" && dueTime(t[4]) < today.getTime())
+      .sort((a, b) => dueTime(a[4]) - dueTime(b[4]));
     if (overdue.length)
       attention.push(
         <Attention

@@ -4,7 +4,6 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   MessageSquare,
   FolderKanban,
-  CalendarClock,
   Check,
   CheckSquare,
   ChevronDown,
@@ -20,10 +19,6 @@ import {
   TrendingUp,
   UsersRound,
   Users,
-  Activity,
-  Gauge,
-  CircleDollarSign,
-  BriefcaseBusiness,
   Target,
   Landmark,
   Repeat,
@@ -588,17 +583,6 @@ const toneOf = (label: string): Tone => {
   if (/hour|time|member|team/.test(l)) return "primary";
   return "violet";
 };
-const iconOf = (label: string, tone: Tone) => {
-  const l = label.toLowerCase();
-  if (/member|team/.test(l)) return Users;
-  if (/hour|time|billable/.test(l)) return Clock3;
-  if (/utiliz|capacity|used/.test(l)) return Gauge;
-  if (/renew|next/.test(l)) return CalendarClock;
-  if (/project/.test(l)) return BriefcaseBusiness;
-  if (tone === "cost") return Receipt;
-  if (tone === "profit") return CircleDollarSign;
-  return Activity;
-};
 /** Reusable MiniOps summary card — mirrors the Overview KPI style. */
 export function SummaryCard({
   label,
@@ -618,15 +602,6 @@ export function SummaryCard({
   icon?: ReactNode;
 }) {
   const t = tone ?? toneOf(label);
-  const Icon = iconOf(label, t);
-  const toneClass =
-    t === "profit"
-      ? "bg-positive-soft text-positive"
-      : t === "cost"
-        ? "bg-warning-soft text-warning"
-        : t === "primary"
-          ? "bg-info-soft text-info"
-          : "bg-primary-soft text-primary";
   const line =
     t === "profit"
       ? "text-positive"
@@ -635,26 +610,11 @@ export function SummaryCard({
         : t === "primary"
           ? "text-info"
           : "text-primary";
-  const surface =
-    t === "profit"
-      ? "from-positive-soft/60"
-      : t === "cost"
-        ? "from-warning-soft/50"
-        : t === "primary"
-          ? "from-info-soft/60"
-          : "from-primary-soft/80";
   return (
-    <div
-      className={cn(
-        "summary-card group flex min-w-0 flex-col rounded-2xl bg-card bg-gradient-to-br to-card to-65% p-5 shadow-card transition-[transform,box-shadow] duration-200 hover:-translate-y-px hover:shadow-card-hover md:p-6",
-        surface,
-      )}
-    >
-      <div className="flex items-center gap-3">
-        <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", toneClass)}>
-          {icon ?? <Icon className="size-[18px]" />}
-        </span>
-        <p className="min-w-0 flex-1 text-[13px] font-medium leading-snug text-muted-foreground max-sm:line-clamp-2 sm:truncate">
+    <div className="summary-card flex min-w-0 flex-col gap-1.5 rounded-2xl border bg-card px-5 py-4 md:px-6 md:py-5">
+      <div className="flex items-center gap-2.5">
+        {icon && <span className="text-subtle-foreground">{icon}</span>}
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground max-sm:line-clamp-2 sm:truncate">
           {label}
         </p>
         {spark && (
@@ -663,18 +623,18 @@ export function SummaryCard({
           </span>
         )}
       </div>
-      <strong className="mt-5 block truncate font-mono text-[1.625rem] font-semibold leading-none tracking-tight tabular-nums md:text-[1.875rem]">
+      <strong className="block truncate font-display text-[26px] font-semibold leading-tight tabular-nums md:text-[28px]">
         {value}
       </strong>
       {(trend || hint) && (
-        <div className="mt-2 flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-[13px]">
           {trend && (
-            <span className="inline-flex items-center rounded-full bg-positive-soft px-1.5 py-0.5 font-semibold text-positive">
+            <span className="inline-flex items-center font-medium text-positive">
               <TrendingUp className="mr-1 size-3" />
               {trend}
             </span>
           )}
-          {hint && <span className="text-muted-foreground">{hint}</span>}
+          {hint && <span className="text-subtle-foreground">{hint}</span>}
         </div>
       )}
     </div>
@@ -685,28 +645,20 @@ export function Status({ children }: { children: ReactNode }) {
   const t = String(children);
   const c = ["Healthy", "Active", "Done", "Approved", "Responded"].includes(t)
     ? "bg-positive-soft text-positive"
-    : [
-          "Attention",
-          "In Progress",
-          "In Review",
-          "Feedback",
-          "Pending",
-          "Invited",
-          "Waiting",
-          "New",
-        ].includes(t)
+    : ["Attention", "In Review", "Feedback", "Pending", "Invited", "Waiting", "New"].includes(t)
       ? "bg-warning-soft text-warning"
-      : ["At Risk", "Urgent", "Suspended", "Overdue"].includes(t)
-        ? "bg-danger-soft text-destructive"
-        : "bg-muted text-muted-foreground";
+      : ["In Progress", "Sent"].includes(t)
+        ? "bg-info-soft text-info"
+        : ["At Risk", "Loss", "Urgent", "Suspended", "Overdue", "Rejected"].includes(t)
+          ? "bg-danger-soft text-destructive"
+          : "bg-muted text-muted-foreground";
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium",
+        "inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[12.5px] font-medium",
         c,
       )}
     >
-      <span className="size-1.5 rounded-full bg-current" />
       {children}
     </span>
   );
@@ -714,7 +666,7 @@ export function Status({ children }: { children: ReactNode }) {
 
 /** One card in the phone list that replaces a table on small screens. */
 export function MobileCard({ children }: { children: ReactNode }) {
-  return <div className="rounded-2xl bg-card p-4 shadow-card">{children}</div>;
+  return <div className="rounded-2xl border bg-card p-4">{children}</div>;
 }
 
 /** A small label with its value, shown inside a MobileCard. */

@@ -64,7 +64,7 @@ import { SearchableSelect } from "@/components/miniops/select-search";
 import { formatDisplayDate, toIso } from "@/components/miniops/date-time";
 import { money } from "@/data/mock";
 import { CLIENT_STATUSES } from "@/lib/api";
-import { ErrorState, NoAccess, ProjectFormDialog, SignInPrompt } from "./projects";
+import { ErrorState, HealthChip, NoAccess, ProjectFormDialog, SignInPrompt } from "./projects";
 import { useMiniOps, type ClientInput, type ClientItem } from "./store";
 
 const INDUSTRIES = [
@@ -108,7 +108,9 @@ export function Clients() {
   const [q, setQ] = useListState("Clients.q", "");
   const [status, setStatus] = useListState("Clients.status", "all");
   const [industry, setIndustry] = useListState("Clients.industry", "");
-  const [sort, setSort] = useListState<SortKey>("Clients.sort", () => (showMoney ? "revenue" : "name"));
+  const [sort, setSort] = useListState<SortKey>("Clients.sort", () =>
+    showMoney ? "revenue" : "name",
+  );
 
   const industries = useMemo(
     () => [...new Set(clientList.map((c) => c.industry).filter(Boolean))].sort(),
@@ -312,7 +314,7 @@ function ClientsTable({ rows, showMoney }: { rows: ClientItem[]; showMoney: bool
                     {client.revenue ? `${client.margin}%` : "-"}
                   </MobileField>
                   <MobileField label="Health">
-                    <Status>{client.health}</Status>
+                    <HealthChip client health={client.health} />
                   </MobileField>
                 </>
               )}
@@ -371,7 +373,7 @@ function ClientsDesktopTable({ rows, showMoney }: { rows: ClientItem[]; showMone
                 <TableCell className="num">{money(c.profit)}</TableCell>
                 <TableCell className="num">{c.revenue ? `${c.margin}%` : "—"}</TableCell>
                 <TableCell>
-                  <Status>{c.health}</Status>
+                  <HealthChip client health={c.health} />
                 </TableCell>
               </>
             )}
@@ -498,7 +500,7 @@ export function ClientDetail({ slug }: { slug: string }) {
           </dl>
           <div className="mt-4 flex gap-2">
             <Status>{c.status}</Status>
-            {showMoney && <Status>{c.health}</Status>}
+            {showMoney && <HealthChip client health={c.health} />}
           </div>
         </Section>
         {showMoney && (
@@ -545,7 +547,7 @@ export function ClientDetail({ slug }: { slug: string }) {
                 </span>
                 {showMoney && (
                   <span className="flex items-center gap-4 text-right">
-                    <Status>{p.health}</Status>
+                    <HealthChip health={p.health} />
                     <span>
                       <b className="font-mono">{money(p.profit)}</b>
                       <small className="block text-muted-foreground">{p.margin}% margin</small>

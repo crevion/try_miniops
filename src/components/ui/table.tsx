@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
-    <div className="relative min-w-0 max-w-full overflow-auto rounded-2xl bg-card shadow-card">
+    <div className="relative min-w-0 max-w-full overflow-auto rounded-2xl border bg-card">
       <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
     </div>
   ),
@@ -17,7 +17,10 @@ const TableHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <thead
     ref={ref}
-    className={cn("sticky top-0 z-10 bg-secondary/70 backdrop-blur [&_tr]:border-0", className)}
+    className={cn(
+      "sticky top-0 z-10 bg-card [&_tr]:border-b [&_tr]:border-border [&_tr:hover]:bg-transparent",
+      className,
+    )}
     {...props}
   />
 ));
@@ -48,7 +51,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
     <tr
       ref={ref}
       className={cn(
-        "border-b border-border/40 transition-colors duration-150 hover:bg-accent/45 data-[state=selected]:bg-primary-soft",
+        "border-b border-border transition-colors duration-150 hover:bg-secondary/60 data-[state=selected]:bg-primary-soft",
         className,
       )}
       {...props}
@@ -64,7 +67,7 @@ const TableHead = React.forwardRef<
   <th
     ref={ref}
     className={cn(
-      "h-10 px-3 text-left align-middle text-xs font-semibold text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+      "h-11 px-4 text-left align-middle text-[13px] font-medium text-subtle-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
       className,
     )}
     {...props}
@@ -79,7 +82,7 @@ const TableCell = React.forwardRef<
   <td
     ref={ref}
     className={cn(
-      "px-3 py-3 align-middle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+      "px-4 py-3.5 align-middle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
       className,
     )}
     {...props}

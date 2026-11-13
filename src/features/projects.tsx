@@ -1,4 +1,5 @@
 import { useListState } from "@/hooks/use-list-state";
+import { cn } from "@/lib/utils";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -135,7 +136,7 @@ export function Projects() {
   const [client, setClient] = useListState("Projects.client", "");
   const [range, setRange] = useListState<IsoRange>("Projects.range", { from: "", to: "" });
   const [sort, setSort] = useListState<SortKey>("Projects.sort", "recent");
-  const [view, setView] = useListState<"grid" | "list">("Projects.view", "grid");
+  const [view, setView] = useListState<"grid" | "list">("Projects.view", "list");
 
   const clientOptions = useMemo(
     () => [...new Set(projects.map((p) => p.client).filter(Boolean))].sort(),
@@ -390,7 +391,7 @@ function ProjectCard({ project, showMoney }: { project: Project; showMoney: bool
       {showMoney && (
         <div className="mt-4 flex items-center justify-between text-xs">
           <span className="text-muted-foreground">Health</span>
-          <Status>{project.health}</Status>
+          <HealthChip health={project.health} />
         </div>
       )}
     </Link>
@@ -439,7 +440,7 @@ function ProjectsTable({ rows, showMoney }: { rows: Project[]; showMoney: boolea
               </MobileField>
               {showMoney && (
                 <MobileField label="Health">
-                  <Status>{project.health}</Status>
+                  <HealthChip health={project.health} />
                 </MobileField>
               )}
             </dl>
@@ -453,26 +454,79 @@ function ProjectsTable({ rows, showMoney }: { rows: Project[]; showMoney: boolea
   );
 }
 
+// Redesign v2 labels for project health.
+const HEALTH_LABEL: Record<string, string> = {
+  Healthy: "On track",
+  Attention: "At risk",
+  "At Risk": "At risk",
+  Loss: "Losing money",
+};
+const CLIENT_HEALTH_LABEL: Record<string, string> = {
+  Healthy: "Healthy",
+  Attention: "Needs attention",
+  "At Risk": "Needs attention",
+  Loss: "Losing money",
+};
+export function HealthChip({ health, client = false }: { health: string; client?: boolean }) {
+  const tone =
+    health === "Healthy"
+      ? "bg-positive-soft text-positive"
+      : health === "Loss"
+        ? "bg-danger-soft text-destructive"
+        : health === "No data"
+          ? "bg-secondary text-muted-foreground"
+          : "bg-warning-soft text-warning";
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[12.5px] font-medium",
+        tone,
+      )}
+    >
+      {(client ? CLIENT_HEALTH_LABEL : HEALTH_LABEL)[health] ?? health}
+    </span>
+  );
+}
+
+function Meter({ value, tone }: { value: number; tone: "primary" | "warn" | "bad" | "ok" }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-secondary">
+        <div
+          className={cn(
+            "h-full rounded-full",
+            tone === "primary" && "bg-primary",
+            tone === "warn" && "bg-warning",
+            tone === "bad" && "bg-destructive",
+            tone === "ok" && "bg-positive",
+          )}
+          style={{ width: `${Math.min(value, 100)}%` }}
+        />
+      </div>
+      <span className="w-10 text-[13px] tabular-nums text-muted-foreground">{value}%</span>
+    </div>
+  );
+}
+
 function ProjectsDesktopTable({ rows, showMoney }: { rows: Project[]; showMoney: boolean }) {
   return (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>Project</TableHead>
-          <TableHead>Client</TableHead>
-          <TableHead>Manager</TableHead>
-          <TableHead>Status</TableHead>
-          {showMoney && (
+          {showMoney ? <TableHead>Health</TableHead> : <TableHead>Status</TableHead>}
+          {showMoney && <TableHead>Budget used</TableHead>}
+          <TableHead>Work done</TableHead>
+          {showMoney ? (
             <>
-              <TableHead className="text-right">Revenue</TableHead>
-              <TableHead className="text-right">Budget</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
+              <TableHead className="text-right">Fee</TableHead>
+              <TableHead className="text-right">Cost so far</TableHead>
               <TableHead className="text-right">Profit</TableHead>
               <TableHead className="text-right">Margin</TableHead>
             </>
+          ) : (
+            <TableHead>Manager</TableHead>
           )}
-          <TableHead>Progress</TableHead>
-          {showMoney && <TableHead>Health</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -482,51 +536,43 @@ function ProjectsDesktopTable({ rows, showMoney }: { rows: Project[]; showMoney:
               <Link
                 to="/projects/$projectSlug"
                 params={{ projectSlug: p.id }}
-                className="font-medium hover:text-primary"
+                className="font-semibold hover:text-primary"
               >
                 {p.name}
               </Link>
-              {p.endDate && (
-                <small className="block text-xs text-muted-foreground">
-                  Due {formatDisplayDate(p.endDate)}
-                </small>
-              )}
+              <small className="block text-[13px] text-subtle-foreground">
+                {p.client || "No client"}
+                {p.endDate && ` · due ${formatDisplayDate(p.endDate)}`}
+              </small>
             </TableCell>
             <TableCell>
-              {p.clientSlug ? (
-                <Link
-                  to="/clients/$clientSlug"
-                  params={{ clientSlug: p.clientSlug }}
-                  className="hover:text-primary"
-                >
-                  {p.client}
-                </Link>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </TableCell>
-            <TableCell>
-              {p.managerNames?.join(", ") || <span className="text-muted-foreground">—</span>}
-            </TableCell>
-            <TableCell>
-              <Status>{p.status}</Status>
-            </TableCell>
-            {showMoney && (
-              <>
-                {[p.revenue, p.budget, p.cost, p.profit].map((v, i) => (
-                  <TableCell key={i} className="num">
-                    {money(v)}
-                  </TableCell>
-                ))}
-                <TableCell className="num">{p.margin}%</TableCell>
-              </>
-            )}
-            <TableCell>
-              <ProgressBar value={p.progress} />
+              {showMoney ? <HealthChip health={p.health} /> : <Status>{p.status}</Status>}
             </TableCell>
             {showMoney && (
               <TableCell>
-                <Status>{p.health}</Status>
+                <Meter
+                  value={p.budgetUsed}
+                  tone={p.budgetUsed > 100 ? "bad" : p.budgetUsed >= 80 ? "warn" : "primary"}
+                />
+              </TableCell>
+            )}
+            <TableCell>
+              <Meter value={p.progress} tone="ok" />
+            </TableCell>
+            {showMoney ? (
+              <>
+                <TableCell className="num">{money(p.revenue)}</TableCell>
+                <TableCell className="num text-muted-foreground">{money(p.cost)}</TableCell>
+                <TableCell className={cn("num font-semibold", p.profit < 0 && "text-destructive")}>
+                  {money(p.profit)}
+                </TableCell>
+                <TableCell className={cn("num font-semibold", p.margin < 0 && "text-destructive")}>
+                  {Math.round(p.margin)}%
+                </TableCell>
+              </>
+            ) : (
+              <TableCell>
+                {p.managerNames?.join(", ") || <span className="text-muted-foreground">—</span>}
               </TableCell>
             )}
           </TableRow>
@@ -538,11 +584,14 @@ function ProjectsDesktopTable({ rows, showMoney }: { rows: Project[]; showMoney:
 
 export function ProgressBar({ value }: { value: number }) {
   return (
-    <div className="w-24">
-      <div className="h-1.5 bg-muted">
-        <div className="h-full bg-primary" style={{ width: `${Math.min(value, 100)}%` }} />
+    <div className="flex w-32 items-center gap-2">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
+        <div
+          className="h-full rounded-full bg-primary"
+          style={{ width: `${Math.min(value, 100)}%` }}
+        />
       </div>
-      <small>{value}%</small>
+      <small className="w-9 text-right text-xs tabular-nums text-muted-foreground">{value}%</small>
     </div>
   );
 }
@@ -711,7 +760,7 @@ export function ProjectDetail({ slug }: { slug: string }) {
                   <span>
                     Health
                     <br />
-                    <Status>{p.health}</Status>
+                    <HealthChip health={p.health} />
                   </span>
                 )}
                 <span>
