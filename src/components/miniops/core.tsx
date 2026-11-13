@@ -24,6 +24,9 @@ import {
   Gauge,
   CircleDollarSign,
   BriefcaseBusiness,
+  Target,
+  Landmark,
+  Repeat,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -56,6 +59,7 @@ import {
 import { useMiniOps, useNeeds } from "@/features/store";
 import { NotificationCenter, ProfileMenu } from "./header";
 import { ViewSwitcher } from "./view-switcher";
+import { AskMiniOps } from "@/features/preview/ask";
 import { cn } from "@/lib/utils";
 import { CURRENCIES, browserTimezone, timezoneOptions } from "@/lib/workspace-options";
 import { SearchableSelect } from "./select-search";
@@ -66,11 +70,19 @@ const navGroups = [
     null,
     [
       ["/app", "Home", LayoutDashboard],
+      ["/goals", "Goals", Target],
       ["/projects", "Projects", FolderKanban],
       ["/clients", "Clients", UsersRound],
     ],
   ],
-  ["Money", [["/expenses", "Expenses", Receipt]]],
+  [
+    "Money",
+    [
+      ["/expenses", "Expenses", Receipt],
+      ["/bank", "Bank & statements", Landmark],
+      ["/subscriptions", "Subscriptions & bills", Repeat],
+    ],
+  ],
   [
     "Work",
     [
@@ -133,7 +145,9 @@ function WorkspacePicker({ compact = false }: { compact?: boolean }) {
               <>
                 <span className="min-w-0 flex-1">
                   <b className="block truncate text-sm font-semibold">{activeWorkspace.name}</b>
-                  <small className="block text-xs text-subtle-foreground">{activeWorkspace.role}</small>
+                  <small className="block text-xs text-subtle-foreground">
+                    {activeWorkspace.role}
+                  </small>
                 </span>
                 <ChevronDown className="size-4 text-muted-foreground" />
               </>
@@ -380,6 +394,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Logo compact={collapsed} />
         </div>
         <WorkspacePicker compact={collapsed} />
+        <AskMiniOps compact={collapsed} />
         <Nav compact={collapsed} />
         <div className="pt-3">
           <Button
@@ -414,6 +429,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Logo />
                 </SheetTitle>
                 <WorkspacePicker />
+                <AskMiniOps />
                 <Nav />
               </SheetContent>
             </Sheet>
@@ -521,11 +537,13 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-8 grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+    <div className="mb-6 grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
       <div className="min-w-0">
-        <h1 className="font-display text-3xl font-bold md:text-4xl">{title}</h1>
+        <h1 className="font-display text-[26px] font-semibold leading-tight md:text-[30px]">
+          {title}
+        </h1>
         {description && (
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground md:text-base">{description}</p>
+          <p className="mt-1.5 max-w-2xl text-[15px] text-muted-foreground">{description}</p>
         )}
       </div>
       <div className="shrink-0">{action}</div>
