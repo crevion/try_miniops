@@ -1,6 +1,7 @@
 import { useListState } from "@/hooks/use-list-state";
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { cn } from "@/lib/utils";
 import {
   Building2,
   Mail,
@@ -63,7 +64,8 @@ import { Section } from "@/components/miniops/forms";
 import { SearchableSelect } from "@/components/miniops/select-search";
 import { formatDisplayDate, toIso } from "@/components/miniops/date-time";
 import { money } from "@/data/mock";
-import { CLIENT_STATUSES } from "@/lib/api";
+import { CLIENT_STATUSES, type ClientStatus, type ClientWrite } from "@/lib/api";
+import { InlinePick, InlineText, saveWithUndo } from "@/components/miniops/inline-edit";
 import { ErrorState, HealthChip, NoAccess, ProjectFormDialog, SignInPrompt } from "./projects";
 import { useMiniOps, type ClientInput, type ClientItem } from "./store";
 
@@ -278,6 +280,79 @@ export function Clients() {
   );
 }
 
+/* ---------- Edit in place ---------- */
+
+function useClientEdit(c: ClientItem) {
+  const { patchClient, can } = useMiniOps();
+  const change = (message: string, write: ClientWrite, before: ClientWrite) =>
+    saveWithUndo(
+      message,
+      () => patchClient(c.slug, write),
+      () => patchClient(c.slug, before),
+    );
+  return {
+    can: can("clients", "edit"),
+    rename: (name: string) => change("Client renamed", { name }, { name: c.name }),
+    industry: (industry: string) =>
+      change("Industry updated", { industry }, { industry: c.industry }),
+    status: (status: string) =>
+      change(`Status: ${status}`, { status: status as ClientStatus }, { status: c.status }),
+  };
+}
+
+function ClientNameEdit({ client, className }: { client: ClientItem; className?: string }) {
+  const edit = useClientEdit(client);
+  const navigate = useNavigate();
+  return (
+    <InlineText
+      value={client.name}
+      onSave={edit.rename}
+      disabled={!edit.can}
+      label="Client name"
+      onOpen={() =>
+        void navigate({ to: "/clients/$clientSlug", params: { clientSlug: client.slug } })
+      }
+    >
+      <Link
+        to="/clients/$clientSlug"
+        params={{ clientSlug: client.slug }}
+        className={cn("font-medium hover:text-primary", className)}
+      >
+        {client.name}
+      </Link>
+    </InlineText>
+  );
+}
+
+function ClientIndustryEdit({ client }: { client: ClientItem }) {
+  const edit = useClientEdit(client);
+  return (
+    <InlineText
+      value={client.industry}
+      onSave={edit.industry}
+      disabled={!edit.can}
+      label="Industry"
+    >
+      {client.industry || <span className="text-muted-foreground">—</span>}
+    </InlineText>
+  );
+}
+
+function ClientStatusEdit({ client }: { client: ClientItem }) {
+  const edit = useClientEdit(client);
+  return (
+    <InlinePick
+      label="Status"
+      value={client.status}
+      options={CLIENT_STATUSES.map((v) => ({ value: v, label: v, render: <Status>{v}</Status> }))}
+      onPick={edit.status}
+      disabled={!edit.can}
+    >
+      <Status>{client.status}</Status>
+    </InlinePick>
+  );
+}
+
 function ClientsTable({ rows, showMoney }: { rows: ClientItem[]; showMoney: boolean }) {
   return (
     <>
@@ -289,18 +364,12 @@ function ClientsTable({ rows, showMoney }: { rows: ClientItem[]; showMoney: bool
           <MobileCard key={client.slug}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <Link
-                  to="/clients/$clientSlug"
-                  params={{ clientSlug: client.slug }}
-                  className="block truncate font-medium hover:text-primary"
-                >
-                  {client.name}
-                </Link>
+                <ClientNameEdit client={client} />
                 <p className="truncate text-xs text-muted-foreground">
                   {client.industry || "No industry"}
                 </p>
               </div>
-              <Status>{client.status}</Status>
+              <ClientStatusEdit client={client} />
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3">
               <MobileField label="Active projects">
@@ -350,18 +419,14 @@ function ClientsDesktopTable({ rows, showMoney }: { rows: ClientItem[]; showMone
         {rows.map((c) => (
           <TableRow key={c.slug}>
             <TableCell>
-              <Link
-                to="/clients/$clientSlug"
-                params={{ clientSlug: c.slug }}
-                className="font-medium hover:text-primary"
-              >
-                {c.name}
-              </Link>
+              <ClientNameEdit client={c} />
               {c.contactName && (
                 <small className="block text-xs text-muted-foreground">{c.contactName}</small>
               )}
             </TableCell>
-            <TableCell>{c.industry || <span className="text-muted-foreground">—</span>}</TableCell>
+            <TableCell>
+              <ClientIndustryEdit client={c} />
+            </TableCell>
             <TableCell className="num">
               {c.activeProjects}
               <span className="text-muted-foreground"> / {c.projectCount}</span>
@@ -378,7 +443,7 @@ function ClientsDesktopTable({ rows, showMoney }: { rows: ClientItem[]; showMone
               </>
             )}
             <TableCell>
-              <Status>{c.status}</Status>
+              <ClientStatusEdit client={c} />
             </TableCell>
           </TableRow>
         ))}
@@ -409,7 +474,7 @@ function EmptyClients({ canEdit }: { canEdit: boolean }) {
 }
 
 export function ClientDetail({ slug }: { slug: string }) {
-  const { clientList, clientsState, projects, can, authStatus } = useMiniOps();
+  const { clientList, clientsState, projects, can, authStatus, patchClient } = useMiniOps();
   const canEdit = can("clients", "edit");
   const canAddProject = can("projects", "edit");
   const showMoney = can("financials");
@@ -458,7 +523,23 @@ export function ClientDetail({ slug }: { slug: string }) {
   return (
     <>
       <PageHeader
-        title={c.name}
+        title={
+          <InlineText
+            value={c.name}
+            onSave={(name) =>
+              saveWithUndo(
+                "Client renamed",
+                () => patchClient(c.slug, { name }),
+                () => patchClient(c.slug, { name: c.name }),
+              )
+            }
+            disabled={!canEdit}
+            label="Client name"
+            inputClassName="h-11 text-[24px] font-semibold"
+          >
+            {c.name}
+          </InlineText>
+        }
         description={`${c.industry || "No industry"} · Client since ${sinceDate(c.createdAt)}`}
         action={canEdit && <ClientActions client={c} />}
       />
@@ -499,7 +580,7 @@ export function ClientDetail({ slug }: { slug: string }) {
             </ContactLine>
           </dl>
           <div className="mt-4 flex gap-2">
-            <Status>{c.status}</Status>
+            <ClientStatusEdit client={c} />
             {showMoney && <HealthChip client health={c.health} />}
           </div>
         </Section>

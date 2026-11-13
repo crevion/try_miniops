@@ -343,6 +343,11 @@ type Store = WorkspaceData & {
   deleteTask: (slug: string) => Promise<void>;
   moveTask: (slug: string, status: TaskStatus) => Promise<void>;
   rescheduleTask: (slug: string, dueDate: string) => Promise<void>;
+  /** In-place edits: change a few fields, shown at once and rolled back if the save fails. */
+  /** `shown` adds display fields (like a new assignee's name) until the server answers. */
+  patchTask: (slug: string, write: TaskWrite, shown?: Partial<ApiTask>) => Promise<void>;
+  patchProject: (slug: string, write: ProjectWrite) => Promise<void>;
+  patchClient: (slug: string, write: ClientWrite) => Promise<void>;
   notificationList: AppNotification[];
   readNotification: (id: string) => void;
   /** Raw notifications from the API (the employee view maps them itself). */
@@ -1419,6 +1424,43 @@ export function MiniOpsProvider({ children }: { children: ReactNode }) {
     await tasksApi.update(apiWid, slug, { due_date: dueDate || null });
     await queryClient.invalidateQueries({ queryKey: ["tasks", apiWid] });
   }
+  async function patchList<T extends { slug: string }>(
+    name: "tasks" | "projects" | "clients",
+    slug: string,
+    write: Partial<T>,
+    send: (wid: number) => Promise<T>,
+  ) {
+    if (apiWid === null) throw notSignedIn();
+    const key = [name, apiWid];
+    const before = queryClient.getQueryData<T[]>(key);
+    queryClient.setQueryData<T[]>(key, (l) =>
+      l?.map((x) => (x.slug === slug ? { ...x, ...write } : x)),
+    );
+    try {
+      const saved = await send(apiWid);
+      queryClient.setQueryData<T[]>(key, (l) => l?.map((x) => (x.slug === slug ? saved : x)));
+      // Totals and shared-task statuses are worked out on the server.
+      void queryClient.invalidateQueries({ queryKey: key });
+      if (name === "projects")
+        void queryClient.invalidateQueries({ queryKey: ["clients", apiWid] });
+      if (name !== "clients") void queryClient.invalidateQueries({ queryKey: ["tasks", apiWid] });
+    } catch (e) {
+      queryClient.setQueryData(key, before);
+      throw e;
+    }
+  }
+  const patchTask = (slug: string, write: TaskWrite, shown?: Partial<ApiTask>) =>
+    patchList<ApiTask>("tasks", slug, { ...(write as Partial<ApiTask>), ...shown }, (w) =>
+      tasksApi.update(w, slug, write),
+    );
+  const patchProject = (slug: string, write: ProjectWrite) =>
+    patchList<ApiProject>("projects", slug, write as Partial<ApiProject>, (w) =>
+      projectsApi.update(w, slug, write),
+    );
+  const patchClient = (slug: string, write: ClientWrite) =>
+    patchList<ApiClient>("clients", slug, write as Partial<ApiClient>, (w) =>
+      clientsApi.update(w, slug, write),
+    );
   const updateData = (update: (data: WorkspaceData) => WorkspaceData) =>
     setWorkspaces((current) =>
       current.map((w) => (w.id === wid ? { ...w, data: update(w.data) } : w)),
@@ -1532,6 +1574,9 @@ export function MiniOpsProvider({ children }: { children: ReactNode }) {
         deleteTask,
         moveTask,
         rescheduleTask,
+        patchTask,
+        patchProject,
+        patchClient,
         clientList,
         clientsState,
         saveClient,

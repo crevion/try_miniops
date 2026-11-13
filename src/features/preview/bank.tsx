@@ -14,8 +14,10 @@ import { PageHeader } from "@/components/miniops/core";
 import { cn } from "@/lib/utils";
 import { BANK_ACCOUNTS, SAMPLE_TRANSACTIONS, TX_CATEGORIES, money, type Transaction } from "./data";
 import { SampleDataBadge } from "./ui";
+import { InlinePick } from "@/components/miniops/inline-edit";
 
 const STEPS = ["Upload", "Read", "Review", "Done"];
+const extraProjects = ["Website redesign", "Q4 SEO retainer", "Brand video"];
 
 function Stepper({ current }: { current: number }) {
   return (
@@ -54,6 +56,9 @@ export function BankPage() {
   const [done, setDone] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const ready = rows.filter((r) => r.ok).length;
+  const projectNames = [
+    ...new Set([...SAMPLE_TRANSACTIONS.map((t) => t.project).filter(Boolean), ...extraProjects]),
+  ];
   const update = (id: number, patch: Partial<Transaction & { ok: boolean }>) =>
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const pickFile = () => fileRef.current?.click();
@@ -206,14 +211,29 @@ export function BankPage() {
                     </Select>
                   </td>
                   <td className="py-2.5 text-[13px]">
-                    <span
-                      className={cn(
-                        "inline-flex rounded-md bg-secondary px-2 py-1",
-                        !t.project && "text-subtle-foreground",
-                      )}
+                    <InlinePick
+                      label="Project"
+                      search
+                      value={t.project}
+                      options={[
+                        { value: "", label: "No project" },
+                        ...projectNames.map((n) => ({ value: n, label: n })),
+                      ]}
+                      onPick={(v) => {
+                        const before = t.project;
+                        update(t.id, { project: v, ok: true });
+                        toast(v ? `Linked to ${v}` : "Unlinked from project", {
+                          action: {
+                            label: "Undo",
+                            onClick: () => update(t.id, { project: before }),
+                          },
+                        });
+                      }}
                     >
-                      {t.project || "No project"}
-                    </span>
+                      <span className={cn(!t.project && "text-subtle-foreground")}>
+                        {t.project || "No project"}
+                      </span>
+                    </InlinePick>
                   </td>
                   <td
                     className={cn(

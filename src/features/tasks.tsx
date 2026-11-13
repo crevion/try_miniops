@@ -95,13 +95,16 @@ import {
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
+  type ApiTask,
   type TaskFilters,
+  type TaskWrite,
   type TaskPriority,
   type TaskStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ErrorState, NoAccess, SignInPrompt } from "./projects";
 import { useMiniOps, useNeeds, useTaskTags, type TaskInput, type TaskItem } from "./store";
+import { InlineDate, InlinePick, InlineText, saveWithUndo } from "@/components/miniops/inline-edit";
 import { TaskExportDialog, TaskReport } from "./task-reports";
 
 const NO_PROJECT = "__none__";
@@ -118,7 +121,7 @@ function byUrgency(a: TaskItem, b: TaskItem) {
   return due || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
 }
 
-function DueDate({ task, className }: { task: TaskItem; className?: string }) {
+function DueDate({ task, className }: { task: TaskItem; className?: string | undefined }) {
   if (!task.dueDate) return <span className="text-muted-foreground">—</span>;
   return (
     <span className={cn(task.isOverdue && "font-medium text-destructive", className)}>
@@ -440,7 +443,7 @@ function Assignees({ task }: { task: TaskItem }) {
   );
 }
 
-function TaskLink({ task, className }: { task: TaskItem; className?: string }) {
+function TaskLink({ task, className }: { task: TaskItem; className?: string | undefined }) {
   return (
     <Link
       to="/tasks/$taskSlug"
@@ -462,6 +465,177 @@ function ProjectLink({ task }: { task: TaskItem }) {
     >
       {task.projectName}
     </Link>
+  );
+}
+
+/* ---------- Edit in place ---------- */
+
+const STATUS_OPTIONS = TASK_STATUSES.map((v) => ({
+  value: v,
+  label: v,
+  render: <Status>{v}</Status>,
+}));
+const PRIORITY_OPTIONS = [...TASK_PRIORITIES]
+  .reverse()
+  .map((v) => ({ value: v, label: v, render: <Status>{v}</Status> }));
+
+/** One-click and double-click edits for a task's fields, each with Undo. */
+function useTaskEdit(task: TaskItem) {
+  const { patchTask, members, projects } = useMiniOps();
+  const can = task.canEdit;
+  function change<K extends keyof TaskWrite>(
+    message: string,
+    write: Pick<TaskWrite, K>,
+    before: Pick<TaskWrite, K>,
+    shown?: Partial<ApiTask>,
+    shownBefore?: Partial<ApiTask>,
+  ) {
+    saveWithUndo(
+      message,
+      () => patchTask(task.slug, write, shown),
+      () => patchTask(task.slug, before, shownBefore),
+    );
+  }
+  const memberName = (id: number | null) => members.find((m) => m.id === id)?.name ?? "";
+  return {
+    can,
+    rename: (title: string) => change("Task renamed", { title }, { title: task.title }),
+    status: (status: TaskStatus) =>
+      change(`Status: ${status}`, { status }, { status: task.status }),
+    priority: (priority: TaskPriority) =>
+      change(`Priority: ${priority}`, { priority }, { priority: task.priority }),
+    due: (due: string | null) =>
+      change(
+        due ? `Due ${formatDisplayDate(due)}` : "Due date removed",
+        { due_date: due },
+        { due_date: task.dueDate },
+        { is_overdue: false },
+        { is_overdue: task.isOverdue },
+      ),
+    assignee: (v: string) => {
+      const id = v === UNASSIGNED ? null : Number(v);
+      change(
+        id ? `Assigned to ${memberName(id)}` : "Unassigned",
+        { assignee: id },
+        { assignee: task.assignee },
+        { assignee_name: memberName(id) },
+        { assignee_name: task.assigneeName },
+      );
+    },
+    project: (v: string) => {
+      const slug = v === NO_PROJECT ? null : v;
+      const name = projects.find((p) => p.id === slug)?.name ?? "";
+      change(
+        slug ? `Moved to ${name}` : "Removed from project",
+        { project: slug },
+        { project: task.project },
+        { project_name: name },
+        { project_name: task.projectName },
+      );
+    },
+    people: [
+      { value: UNASSIGNED, label: "Unassigned" },
+      ...members.map((m) => ({ value: String(m.id), label: m.name, hint: m.role })),
+    ],
+    projectOptions: [
+      { value: NO_PROJECT, label: "No project" },
+      ...projects.map((p) => ({ value: p.id, label: p.name, hint: p.client })),
+    ],
+  };
+}
+
+/** Task name: click opens it, double-click renames it. */
+function TaskTitleEdit({ task, className }: { task: TaskItem; className?: string | undefined }) {
+  const edit = useTaskEdit(task);
+  const navigate = useNavigate();
+  return (
+    <InlineText
+      value={task.title}
+      onSave={edit.rename}
+      disabled={!edit.can}
+      label="Task name"
+      onOpen={() => void navigate({ to: "/tasks/$taskSlug", params: { taskSlug: task.slug } })}
+    >
+      <TaskLink task={task} className={className} />
+    </InlineText>
+  );
+}
+
+function TaskStatusEdit({ task }: { task: TaskItem }) {
+  const edit = useTaskEdit(task);
+  // A shared task's status follows its people's parts.
+  const shared = task.subtasks.length > 0;
+  return (
+    <InlinePick
+      label="Status"
+      value={task.status}
+      options={STATUS_OPTIONS}
+      onPick={edit.status}
+      disabled={!edit.can || shared}
+    >
+      <Status>{task.status}</Status>
+    </InlinePick>
+  );
+}
+
+function TaskPriorityEdit({ task }: { task: TaskItem }) {
+  const edit = useTaskEdit(task);
+  return (
+    <InlinePick
+      label="Priority"
+      value={task.priority}
+      options={PRIORITY_OPTIONS}
+      onPick={edit.priority}
+      disabled={!edit.can}
+    >
+      <Status>{task.priority}</Status>
+    </InlinePick>
+  );
+}
+
+function TaskDueEdit({ task, className }: { task: TaskItem; className?: string | undefined }) {
+  const edit = useTaskEdit(task);
+  return (
+    <InlineDate value={task.dueDate} onPick={edit.due} disabled={!edit.can}>
+      <DueDate task={task} className={className} />
+    </InlineDate>
+  );
+}
+
+function TaskAssigneeEdit({ task }: { task: TaskItem }) {
+  const edit = useTaskEdit(task);
+  useNeeds("members");
+  return (
+    <InlinePick
+      label="Assignee"
+      search
+      value={task.assignee === null ? UNASSIGNED : String(task.assignee)}
+      options={edit.people}
+      onPick={edit.assignee}
+      disabled={!edit.can || task.subtasks.length > 0}
+    >
+      <Assignees task={task} />
+    </InlinePick>
+  );
+}
+
+function TaskProjectEdit({ task }: { task: TaskItem }) {
+  const edit = useTaskEdit(task);
+  return (
+    <InlinePick
+      label="Project"
+      search
+      value={task.project ?? NO_PROJECT}
+      options={edit.projectOptions}
+      onPick={edit.project}
+      disabled={!edit.can || !!task.parent}
+    >
+      {task.project ? (
+        <span>{task.projectName}</span>
+      ) : (
+        <span className="text-muted-foreground">No project</span>
+      )}
+    </InlinePick>
   );
 }
 
@@ -502,7 +676,7 @@ export function TaskTable({
           <MobileCard key={task.slug}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <TaskLink task={task} />
+                <TaskTitleEdit task={task} />
                 {showProject && (
                   <div className="mt-0.5 truncate text-xs">
                     <ProjectLink task={task} />
@@ -514,16 +688,16 @@ export function TaskTable({
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3">
               <MobileField label="Assigned to">
-                <Assignees task={task} />
+                <TaskAssigneeEdit task={task} />
               </MobileField>
               <MobileField label="Due date">
-                <DueDate task={task} />
+                <TaskDueEdit task={task} />
               </MobileField>
               <MobileField label="Priority">
-                <Status>{task.priority}</Status>
+                <TaskPriorityEdit task={task} />
               </MobileField>
               <MobileField label="Status">
-                <Status>{task.status}</Status>
+                <TaskStatusEdit task={task} />
               </MobileField>
             </dl>
           </MobileCard>
@@ -586,8 +760,8 @@ function TaskDesktopTable({ rows, showProject }: { rows: TaskItem[]; showProject
             ) : (
               <span className="size-5 shrink-0" />
             ))}
-          <div className="min-w-0">
-            <TaskLink task={t} />
+          <div className="min-w-0 flex-1">
+            <TaskTitleEdit task={t} />
             {t.subtasks.length > 0 && (
               <span className="ml-2 text-xs text-muted-foreground">
                 {t.subtasks.length} sub-task{t.subtasks.length === 1 ? "" : "s"}
@@ -599,20 +773,20 @@ function TaskDesktopTable({ rows, showProject }: { rows: TaskItem[]; showProject
       </TableCell>
       {showProject && (
         <TableCell>
-          <ProjectLink task={t} />
+          <TaskProjectEdit task={t} />
         </TableCell>
       )}
       <TableCell>
-        <Assignees task={t} />
+        <TaskAssigneeEdit task={t} />
       </TableCell>
       <TableCell>
-        <Status>{t.priority}</Status>
+        <TaskPriorityEdit task={t} />
       </TableCell>
       <TableCell className="whitespace-nowrap">
-        <DueDate task={t} />
+        <TaskDueEdit task={t} />
       </TableCell>
       <TableCell>
-        <Status>{t.status}</Status>
+        <TaskStatusEdit task={t} />
       </TableCell>
       <TableCell className="text-right">
         <TaskRowActions task={t} />
@@ -716,7 +890,7 @@ function TaskBoard({ rows, canEdit }: { rows: TaskItem[]; canEdit: boolean }) {
                       "cursor-grab active:cursor-grabbing",
                   )}
                 >
-                  <TaskLink task={t} className="text-sm" />
+                  <TaskTitleEdit task={t} className="text-sm" />
                   <TagList tags={t.tags} className="mt-1.5" />
                   <p className="mt-1 text-xs text-muted-foreground">
                     {t.projectName || "No project"}
@@ -725,8 +899,8 @@ function TaskBoard({ rows, canEdit }: { rows: TaskItem[]; canEdit: boolean }) {
                       ` · ${t.subtasks.filter((s) => s.status === "Done").length}/${t.subtasks.length} sub-tasks done`}
                   </p>
                   <div className="mt-3 flex items-center justify-between text-xs">
-                    <Status>{t.priority}</Status>
-                    <DueDate task={t} />
+                    <TaskPriorityEdit task={t} />
+                    <TaskDueEdit task={t} />
                   </div>
                 </div>
               ))}
@@ -880,7 +1054,7 @@ function EmptyTasks({ canEdit }: { canEdit: boolean }) {
 }
 
 export function TaskDetail({ slug }: { slug: string }) {
-  const { taskList, tasksState, can, authStatus, saveTask } = useMiniOps();
+  const { taskList, tasksState, can, authStatus } = useMiniOps();
   const canEdit = can("tasks", "edit");
   const task = taskList.find((t) => t.slug === slug);
 
@@ -907,21 +1081,25 @@ export function TaskDetail({ slug }: { slug: string }) {
         </Button>
       </div>
     );
+  return <TaskDetailBody task={task} />;
+}
 
-  async function changeStatus(status: string) {
-    if (!task || status === task.status) return;
-    try {
-      await saveTask({ ...toInput(task), status: status as TaskStatus }, task.slug);
-      toast.success(`Marked as ${status}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't update the task.");
-    }
-  }
-
+function TaskDetailBody({ task }: { task: TaskItem }) {
+  const edit = useTaskEdit(task);
   return (
     <>
       <PageHeader
-        title={task.title}
+        title={
+          <InlineText
+            value={task.title}
+            onSave={edit.rename}
+            disabled={!task.canEdit}
+            label="Task name"
+            inputClassName="h-11 text-[24px] font-semibold"
+          >
+            {task.title}
+          </InlineText>
+        }
         description={
           task.parent
             ? `${task.assigneeName || "Someone"}'s part of “${task.parentTitle}”`
@@ -942,28 +1120,13 @@ export function TaskDetail({ slug }: { slug: string }) {
         <Section title="Details">
           <dl className="divide-y text-sm">
             <Detail label="Status">
-              {task.canEdit && !task.subtasks.length ? (
-                <Select value={task.status} onValueChange={(v) => void changeStatus(v)}>
-                  <SelectTrigger className="h-8 w-36" aria-label="Change status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TASK_STATUSES.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Status>{task.status}</Status>
-              )}
+              <TaskStatusEdit task={task} />
             </Detail>
             <Detail label="Priority">
-              <Status>{task.priority}</Status>
+              <TaskPriorityEdit task={task} />
             </Detail>
             <Detail label="Due date">
-              <DueDate task={task} />
+              <TaskDueEdit task={task} />
             </Detail>
             {task.parent ? (
               <Detail label="Part of">
@@ -977,13 +1140,13 @@ export function TaskDetail({ slug }: { slug: string }) {
               </Detail>
             ) : null}
             <Detail label="Assigned to">
-              <Assignees task={task} />
+              <TaskAssigneeEdit task={task} />
             </Detail>
             <Detail label="Tags">
               {task.tags.length ? <TagList tags={task.tags} className="justify-end" /> : "None"}
             </Detail>
             <Detail label="Project">
-              <ProjectLink task={task} />
+              {task.parent ? <ProjectLink task={task} /> : <TaskProjectEdit task={task} />}
             </Detail>
             {task.completedAt && (
               <Detail label="Completed">
@@ -999,9 +1162,38 @@ export function TaskDetail({ slug }: { slug: string }) {
   );
 }
 
+/** A sub-task named like its parent is that person's part of it. */
+function partName(s: { title: string; assigneeName: string }, parentTitle: string) {
+  return s.title === parentTitle && s.assigneeName
+    ? `${s.assigneeName.split(" ")[0]}'s part`
+    : s.title;
+}
+
+function SubtaskTitleEdit({ task, parentTitle }: { task: TaskItem; parentTitle: string }) {
+  const edit = useTaskEdit(task);
+  const navigate = useNavigate();
+  return (
+    <InlineText
+      value={task.title}
+      onSave={edit.rename}
+      disabled={!edit.can}
+      label="Sub-task name"
+      onOpen={() => void navigate({ to: "/tasks/$taskSlug", params: { taskSlug: task.slug } })}
+    >
+      <Link
+        to="/tasks/$taskSlug"
+        params={{ taskSlug: task.slug }}
+        className="font-medium hover:text-primary"
+      >
+        {partName(task, parentTitle)}
+      </Link>
+    </InlineText>
+  );
+}
+
 /** A task's sub-tasks, each with its own assignee, status and deadline. */
 function Subtasks({ task }: { task: TaskItem }) {
-  const { rescheduleTask, moveTask, saveTask, members } = useMiniOps();
+  const { moveTask, saveTask, members, taskList } = useMiniOps();
   const done = task.subtasks.filter((s) => s.status === "Done").length;
   const total = task.subtasks.length;
   const [title, setTitle] = useState("");
@@ -1010,14 +1202,6 @@ function Subtasks({ task }: { task: TaskItem }) {
   const [adding, setAdding] = useState(false);
   const people = members.map((m) => ({ value: String(m.id), label: m.name, hint: m.role }));
 
-  async function reschedule(slug: string, date: string) {
-    try {
-      await rescheduleTask(slug, date);
-      toast.success("Deadline updated");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't change the deadline.");
-    }
-  }
   async function toggle(slug: string, isDone: boolean) {
     try {
       await moveTask(slug, isDone ? "To Do" : "Done");
@@ -1083,6 +1267,7 @@ function Subtasks({ task }: { task: TaskItem }) {
       <div className="overflow-hidden rounded-2xl border bg-card">
         {task.subtasks.map((s) => {
           const isDone = s.status === "Done";
+          const full = taskList.find((x) => x.slug === s.slug);
           return (
             <div
               key={s.slug}
@@ -1105,37 +1290,42 @@ function Subtasks({ task }: { task: TaskItem }) {
               >
                 {isDone && <Check className="size-3" strokeWidth={3} />}
               </button>
-              <Link
-                to="/tasks/$taskSlug"
-                params={{ taskSlug: s.slug }}
-                className={cn(
-                  "min-w-0 flex-1 truncate font-medium hover:text-primary",
-                  isDone && "text-subtle-foreground line-through",
-                )}
-              >
-                {s.title === task.title && s.assigneeName
-                  ? `${s.assigneeName.split(" ")[0]}'s part`
-                  : s.title}
-              </Link>
-              <span className="w-36 truncate text-sm text-muted-foreground">
-                {s.assigneeName || "Unassigned"}
-              </span>
-              <span className="w-28">
-                <Status>{s.status}</Status>
-              </span>
-              <span className="w-44">
-                {task.canEdit ? (
-                  <DateInput
-                    aria-label={`Due date for ${s.title}`}
-                    value={s.dueDate ?? ""}
-                    onChange={(v) => v !== (s.dueDate ?? "") && void reschedule(s.slug, v)}
-                  />
-                ) : (
-                  <span className="text-sm text-muted-foreground">
+              {full ? (
+                <>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1",
+                      isDone && "text-subtle-foreground line-through",
+                    )}
+                  >
+                    <SubtaskTitleEdit task={full} parentTitle={task.title} />
+                  </span>
+                  <span className="w-40 truncate text-sm text-muted-foreground">
+                    <TaskAssigneeEdit task={full} />
+                  </span>
+                  <span className="w-28">
+                    <TaskStatusEdit task={full} />
+                  </span>
+                  <span className="w-36 text-sm">
+                    <TaskDueEdit task={full} />
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {partName(s, task.title)}
+                  </span>
+                  <span className="w-40 truncate text-sm text-muted-foreground">
+                    {s.assigneeName || "Unassigned"}
+                  </span>
+                  <span className="w-28">
+                    <Status>{s.status}</Status>
+                  </span>
+                  <span className="w-36 text-sm text-muted-foreground">
                     {s.dueDate ? formatDisplayDate(s.dueDate) : "No due date"}
                   </span>
-                )}
-              </span>
+                </>
+              )}
             </div>
           );
         })}

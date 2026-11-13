@@ -64,6 +64,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Metric, MobileCard, MobileField, PageHeader, Status } from "@/components/miniops/core";
+import { InlineDate, InlinePick, InlineText, saveWithUndo } from "@/components/miniops/inline-edit";
 import { Section } from "@/components/miniops/forms";
 import { LinkedText } from "@/components/miniops/linked-text";
 import { ProjectFiles } from "./project-files";
@@ -76,7 +77,13 @@ import {
   type IsoRange,
 } from "@/components/miniops/date-time";
 import { cash, money, type Project } from "@/data/mock";
-import { membersApi, PROJECT_STATUSES, PROJECT_TYPES } from "@/lib/api";
+import {
+  membersApi,
+  PROJECT_STATUSES,
+  PROJECT_TYPES,
+  type ProjectStatus,
+  type ProjectWrite,
+} from "@/lib/api";
 import { LoginDialog } from "./login-dialog";
 import { TaskFormDialog, TaskTable } from "./tasks";
 import { TaskExportDialog } from "./task-reports";
@@ -410,18 +417,12 @@ function ProjectsTable({ rows, showMoney }: { rows: Project[]; showMoney: boolea
           <MobileCard key={project.id}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <Link
-                  to="/projects/$projectSlug"
-                  params={{ projectSlug: project.id }}
-                  className="block truncate font-medium hover:text-primary"
-                >
-                  {project.name}
-                </Link>
+                <ProjectNameEdit project={project} className="font-medium" />
                 <p className="truncate text-xs text-muted-foreground">
                   {project.client || "No client"}
                 </p>
               </div>
-              <Status>{project.status}</Status>
+              <ProjectStatusEdit project={project} />
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3">
               <MobileField label="Manager">
@@ -436,7 +437,7 @@ function ProjectsTable({ rows, showMoney }: { rows: Project[]; showMoney: boolea
                 </>
               )}
               <MobileField label="Due">
-                {project.endDate ? formatDisplayDate(project.endDate) : "Not set"}
+                <ProjectDueEdit project={project} />
               </MobileField>
               {showMoney && (
                 <MobileField label="Health">
@@ -445,7 +446,9 @@ function ProjectsTable({ rows, showMoney }: { rows: Project[]; showMoney: boolea
               )}
             </dl>
             <div className="mt-4">
-              <ProgressBar value={project.progress} />
+              <ProjectProgressEdit project={project}>
+                <ProgressBar value={project.progress} />
+              </ProjectProgressEdit>
             </div>
           </MobileCard>
         ))}
@@ -508,6 +511,115 @@ function Meter({ value, tone }: { value: number; tone: "primary" | "warn" | "bad
   );
 }
 
+/* ---------- Edit in place ---------- */
+
+const PROGRESS_STEPS = [0, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100];
+
+/** One-click and double-click edits for a project's name, status, progress and due date. */
+function useProjectEdit(p: Project) {
+  const { patchProject, can } = useMiniOps();
+  const change = (message: string, write: ProjectWrite, before: ProjectWrite) =>
+    saveWithUndo(
+      message,
+      () => patchProject(p.id, write),
+      () => patchProject(p.id, before),
+    );
+  return {
+    can: can("projects", "edit"),
+    rename: (name: string) => change("Project renamed", { name }, { name: p.name }),
+    status: (status: string) =>
+      change(
+        `Status: ${status}`,
+        { status: status as ProjectStatus },
+        { status: p.status as ProjectStatus },
+      ),
+    progress: (v: string) =>
+      change(`Work done: ${v}%`, { progress: Number(v) }, { progress: p.progress }),
+    due: (d: string | null) =>
+      change(
+        d ? `Due ${formatDisplayDate(d)}` : "Due date removed",
+        { end_date: d },
+        { end_date: p.endDate ?? null },
+      ),
+  };
+}
+
+export function ProjectNameEdit({ project, className }: { project: Project; className?: string }) {
+  const edit = useProjectEdit(project);
+  const navigate = useNavigate();
+  return (
+    <InlineText
+      value={project.name}
+      onSave={edit.rename}
+      disabled={!edit.can}
+      label="Project name"
+      onOpen={() =>
+        void navigate({ to: "/projects/$projectSlug", params: { projectSlug: project.id } })
+      }
+    >
+      <Link
+        to="/projects/$projectSlug"
+        params={{ projectSlug: project.id }}
+        className={cn("font-semibold hover:text-primary", className)}
+      >
+        {project.name}
+      </Link>
+    </InlineText>
+  );
+}
+
+export function ProjectStatusEdit({ project }: { project: Project }) {
+  const edit = useProjectEdit(project);
+  return (
+    <InlinePick
+      label="Status"
+      value={project.status}
+      options={PROJECT_STATUSES.map((v) => ({ value: v, label: v, render: <Status>{v}</Status> }))}
+      onPick={edit.status}
+      disabled={!edit.can}
+    >
+      <Status>{project.status}</Status>
+    </InlinePick>
+  );
+}
+
+function ProjectProgressEdit({ project, children }: { project: Project; children: ReactNode }) {
+  const edit = useProjectEdit(project);
+  const steps = PROGRESS_STEPS.includes(project.progress)
+    ? PROGRESS_STEPS
+    : [...PROGRESS_STEPS, project.progress].sort((a, b) => a - b);
+  return (
+    <InlinePick
+      label="Work done"
+      value={String(project.progress)}
+      options={steps.map((v) => ({ value: String(v), label: `${v}%` }))}
+      onPick={edit.progress}
+      disabled={!edit.can}
+      className="w-full"
+    >
+      {children}
+    </InlinePick>
+  );
+}
+
+function ProjectDueEdit({ project }: { project: Project }) {
+  const edit = useProjectEdit(project);
+  return (
+    <InlineDate
+      label="Due date"
+      value={project.endDate ?? null}
+      onPick={edit.due}
+      disabled={!edit.can}
+    >
+      {project.endDate ? (
+        `due ${formatDisplayDate(project.endDate)}`
+      ) : (
+        <span className="text-subtle-foreground">no due date</span>
+      )}
+    </InlineDate>
+  );
+}
+
 function ProjectsDesktopTable({ rows, showMoney }: { rows: Project[]; showMoney: boolean }) {
   return (
     <Table>
@@ -533,20 +645,21 @@ function ProjectsDesktopTable({ rows, showMoney }: { rows: Project[]; showMoney:
         {rows.map((p) => (
           <TableRow key={p.id}>
             <TableCell>
-              <Link
-                to="/projects/$projectSlug"
-                params={{ projectSlug: p.id }}
-                className="font-semibold hover:text-primary"
-              >
-                {p.name}
-              </Link>
-              <small className="block text-[13px] text-subtle-foreground">
-                {p.client || "No client"}
-                {p.endDate && ` · due ${formatDisplayDate(p.endDate)}`}
+              <ProjectNameEdit project={p} />
+              <small className="flex items-center gap-1.5 text-[13px] text-subtle-foreground">
+                {p.client || "No client"} ·
+                <ProjectDueEdit project={p} />
               </small>
             </TableCell>
             <TableCell>
-              {showMoney ? <HealthChip health={p.health} /> : <Status>{p.status}</Status>}
+              {showMoney ? (
+                <div className="flex flex-col items-start gap-1">
+                  <HealthChip health={p.health} />
+                  <ProjectStatusEdit project={p} />
+                </div>
+              ) : (
+                <ProjectStatusEdit project={p} />
+              )}
             </TableCell>
             {showMoney && (
               <TableCell>
@@ -557,7 +670,9 @@ function ProjectsDesktopTable({ rows, showMoney }: { rows: Project[]; showMoney:
               </TableCell>
             )}
             <TableCell>
-              <Meter value={p.progress} tone="ok" />
+              <ProjectProgressEdit project={p}>
+                <Meter value={p.progress} tone="ok" />
+              </ProjectProgressEdit>
             </TableCell>
             {showMoney ? (
               <>
@@ -656,8 +771,16 @@ function EmptyState({ canEdit }: { canEdit: boolean }) {
 }
 
 export function ProjectDetail({ slug }: { slug: string }) {
-  const { projects, projectsState, can, authStatus, taskList, expenseList, timeList } =
-    useMiniOps();
+  const {
+    projects,
+    projectsState,
+    can,
+    authStatus,
+    taskList,
+    expenseList,
+    timeList,
+    patchProject,
+  } = useMiniOps();
   const canEdit = can("projects", "edit");
   const canEditTasks = can("tasks", "edit");
   const canSeeExpenses = can("expenses");
@@ -712,7 +835,23 @@ export function ProjectDetail({ slug }: { slug: string }) {
   return (
     <>
       <PageHeader
-        title={p.name}
+        title={
+          <InlineText
+            value={p.name}
+            onSave={(name) =>
+              saveWithUndo(
+                "Project renamed",
+                () => patchProject(p.id, { name }),
+                () => patchProject(p.id, { name: p.name }),
+              )
+            }
+            disabled={!canEdit}
+            label="Project name"
+            inputClassName="h-11 text-[24px] font-semibold"
+          >
+            {p.name}
+          </InlineText>
+        }
         description={`${p.client || "No client"} · ${dateSpan(p)}`}
         action={canEdit && <ProjectActions project={p} />}
       />
@@ -754,7 +893,7 @@ export function ProjectDetail({ slug }: { slug: string }) {
                 <span>
                   Status
                   <br />
-                  <Status>{p.status}</Status>
+                  <ProjectStatusEdit project={p} />
                 </span>
                 {showMoney && (
                   <span>

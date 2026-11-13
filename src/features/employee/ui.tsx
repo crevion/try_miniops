@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { ThemeToggle } from "@/components/miniops/theme";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Activity as ActivityIcon,
@@ -98,7 +99,18 @@ export function MiniOpsMark({
       {compact ? (
         <img src="/apple-touch-icon.png" alt="MiniOps" className="size-8 shrink-0 rounded-[10px]" />
       ) : (
-        <img src="/miniops-logo.png" alt="MiniOps" className={cn("h-8 w-auto", labelClass)} />
+        <>
+          <img
+            src="/miniops-logo.png"
+            alt="MiniOps"
+            className={cn("h-8 w-auto dark:hidden", labelClass)}
+          />
+          <img
+            src="/miniops-logo-dark.png"
+            alt="MiniOps"
+            className={cn("hidden h-8 w-auto dark:block", labelClass)}
+          />
+        </>
       )}
     </div>
   );
@@ -323,6 +335,7 @@ export function EmployeeShell({ children }: { children: ReactNode }) {
                 >
                   <Search />
                 </Button>
+                <ThemeToggle />
                 <ViewSwitcher currentView="employee" />
                 <NotificationMenu />
                 <ProfileMenu />

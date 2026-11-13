@@ -12,6 +12,7 @@ import { MiniOpsProvider } from "@/features/store";
 import { BrowserPushPrompt } from "@/features/notifications";
 import { ListStateProvider } from "@/hooks/use-list-state";
 import { Toaster } from "@/components/ui/sonner";
+import { themeBootScript } from "@/components/miniops/theme";
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
@@ -31,6 +32,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32x32.png" },
       { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
     ],
+    scripts: [{ children: themeBootScript }],
   }),
   shellComponent: RootShell,
   component: Root,
@@ -49,7 +51,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>

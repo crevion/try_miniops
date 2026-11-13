@@ -55,6 +55,7 @@ import { useMiniOps, useNeeds } from "@/features/store";
 import { NotificationCenter, ProfileMenu } from "./header";
 import { ViewSwitcher } from "./view-switcher";
 import { AskMiniOps } from "@/features/preview/ask";
+import { ThemeToggle } from "./theme";
 import { TaskFormDialog } from "@/features/tasks";
 import { cn } from "@/lib/utils";
 import { CURRENCIES, browserTimezone, timezoneOptions } from "@/lib/workspace-options";
@@ -100,7 +101,14 @@ function Logo({ compact = false }: { compact?: boolean }) {
       {compact ? (
         <img src="/apple-touch-icon.png" alt="MiniOps" className="size-8 shrink-0 rounded-lg" />
       ) : (
-        <img src="/miniops-logo.png" alt="MiniOps" className="h-8 w-auto" />
+        <>
+          <img src="/miniops-logo.png" alt="MiniOps" className="h-8 w-auto dark:hidden" />
+          <img
+            src="/miniops-logo-dark.png"
+            alt="MiniOps"
+            className="hidden h-8 w-auto dark:block"
+          />
+        </>
       )}
     </Link>
   );
@@ -479,6 +487,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <Search className="size-4" />
             </Button>
+            <ThemeToggle />
             <ViewSwitcher currentView="employer" />
             <NotificationCenter />
             <ProfileMenu />
@@ -559,7 +568,7 @@ export function PageHeader({
   description,
   action,
 }: {
-  title: string;
+  title: ReactNode;
   description?: string;
   action?: ReactNode;
 }) {
